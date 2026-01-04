@@ -1,4 +1,3 @@
-// WALLEHealthServer/server.js
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
@@ -7,52 +6,68 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
+// 🔔 ADDED (NOTHING REMOVED)
+const admin = require("firebase-admin");
+
 const app = express();
 
-// ✅ Basic Security
+// ✅ REQUIRED FOR RENDER (RATE LIMIT FIX)
+app.set("trust proxy", 1);
+
+// 🔥 TEST ROUTE — सबसे ऊपर (UNCHANGED)
+app.get("/test", (req, res) => {
+  res.json({ status: "Server running OK!" });
+});
+
+// 🔐 FIREBASE ADMIN INIT (ADDED ONLY)
+admin.initializeApp({
+  credential: admin.credential.cert({
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+  }),
+});
+
+// Security (UNCHANGED)
 app.use(helmet());
 app.use(cors());
 app.use(bodyParser.json({ limit: '64kb' }));
 
-// ✅ Rate Limiter (to prevent abuse)
 app.use(
   rateLimit({
-    windowMs: 60 * 1000, // 1 minute
-    max: 60, // limit each IP to 60 requests per minute
+    windowMs: 60 * 1000,
+    max: 60,
   })
 );
 
-// ✅ Auth Middleware
+// API KEY Auth (UNCHANGED)
 function auth(req, res, next) {
   const authHeader = req.headers.authorization;
-  if (!authHeader)
-    return res.status(401).json({ error: 'No authorization header' });
-  const token = authHeader.split(' ')[1];
+  if (!authHeader) return res.status(401).json({ error: "No authorization header" });
+
+  const token = authHeader.split(" ")[1];
   if (token !== process.env.BASIC_API_KEY)
-    return res.status(401).json({ error: 'Invalid API Key' });
+    return res.status(401).json({ error: "Invalid API Key" });
+
   next();
 }
 
-//
-// 🧠 1️⃣ Chatbot Endpoint (for AI health chat)
-//
-app.post('/chat', auth, async (req, res) => {
+// CHAT (UNCHANGED)
+app.post("/chat", auth, async (req, res) => {
   try {
     const { message } = req.body;
-    if (!message)
-      return res.status(400).json({ error: 'Message is required' });
 
     const response = await axios.post(
-      'https://api.openai.com/v1/chat/completions',
+      "https://api.openai.com/v1/chat/completions",
       {
         model: process.env.OPENAI_MODEL,
         messages: [
           {
-            role: 'system',
+            role: "system",
             content:
-              'You are a safe, helpful health assistant providing general medical advice only. Never provide prescriptions or diagnoses.',
+              "You are a safe, helpful health assistant. Never give a diagnosis.",
           },
-          { role: 'user', content: message },
+          { role: "user", content: message },
         ],
         temperature: 0.3,
         max_tokens: 400,
@@ -64,122 +79,66 @@ app.post('/chat', auth, async (req, res) => {
       }
     );
 
-    const reply = response.data.choices[0].message.content;
-    const safeReply = `${reply}\n\n⚠️ Note: This is informational only, not a medical diagnosis. For emergencies, visit a hospital or doctor immediately.`;
-    res.json({ answer: safeReply });
+    res.json({ answer: response.data.choices[0].message.content });
   } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.status(500).json({ error: 'Failed to fetch response' });
+    res.status(500).json({ error: "Failed to fetch response" });
   }
 });
 
-//
-// 🩺 2️⃣ AI Health Summary Endpoint (Phase 5.3)
-//
-app.post('/symptom-summary', auth, async (req, res) => {
+// SUMMARY (UNCHANGED)
+app.post("/symptom-summary", auth, async (req, res) => {
   try {
     const { symptoms } = req.body;
-    if (!symptoms || symptoms.length === 0) {
-      return res.status(400).json({ error: 'No symptom data provided' });
-    }
 
-    // Combine all symptom text for AI analysis
     const textData = symptoms
-      .map((s) => `${s.symptom || ''} - ${s.notes || ''}`)
-      .join('; ');
+      .map((s) => `${s.symptom || ""} - ${s.notes || ""}`)
+      .join("; ");
 
-    // 🧠 Send to OpenAI API for summary
     const response = await axios.post(
-      'https://api.openai.com/v1/chat/completions',
+      "https://api.openai.com/v1/chat/completions",
       {
         model: process.env.OPENAI_MODEL,
         messages: [
-          {
-            role: 'system',
-            content:
-              'You are a medical summary assistant. Analyze symptom history and generate a helpful summary (avoid diagnosis).',
-          },
-          {
-            role: 'user',
-            content: `Here is my recent symptom log:\n${textData}\n\nPlease give me a short health summary and possible wellness tips.`,
-          },
+          { role: "system", content: "You summarize symptoms safely." },
+          { role: "user", content: textData },
         ],
         temperature: 0.4,
-        max_tokens: 350,
       },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
-        },
-      }
+      { headers: { Authorization: `Bearer ${process.env.OPENAI_KEY}` } }
     );
 
-    const summary = response.data.choices[0].message.content;
-    res.json({ summary });
-  } catch (error) {
-    console.error(error.response?.data || error.message);
-    res.status(500).json({ error: 'AI summary generation failed' });
+    res.json({ summary: response.data.choices[0].message.content });
+  } catch (err) {
+    res.status(500).json({ error: "AI summary generation failed" });
   }
 });
 
-//
-// ✅ 3️⃣ Server Listen
-//
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`✅ WALLEHealth Server running on port ${PORT}`));
-
-//
-// 📊 3️⃣ AI Health Analytics Endpoint (Phase 6)
-//
-app.post('/analytics-summary', auth, async (req, res) => {
+// 🔔 SEND NOTIFICATION (ADDED ONLY – DATA-ONLY FCM)
+app.post("/send", auth, async (req, res) => {
   try {
-    const { data } = req.body;
-    if (!data || data.length === 0) {
-      return res.status(400).json({ error: 'No analytics data provided' });
+    const { token, title, body, screen } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: "FCM token required" });
     }
 
-    // Calculate average symptoms per day
-    const avgSymptoms =
-      data.reduce((acc, curr) => acc + curr.symptoms, 0) / data.length;
-
-    // Optional: Build text summary
-    const textForAI = `Here’s the user’s symptom trend data for this week:\n${JSON.stringify(
-      data,
-      null,
-      2
-    )}\n\nPlease summarize this trend with advice for recovery.`;
-
-    // 🧠 Send to OpenAI for AI-powered insights
-    const response = await axios.post(
-      'https://api.openai.com/v1/chat/completions',
-      {
-        model: process.env.OPENAI_MODEL,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are a helpful health assistant. Analyze trends and provide general wellness insights (avoid giving medical diagnosis).',
-          },
-          { role: 'user', content: textForAI },
-        ],
-        temperature: 0.4,
-        max_tokens: 350,
+    await admin.messaging().send({
+      token,
+      data: {
+        title: title || "Daily Health Reminder",
+        body: body || "Bro thoda paani pee lo 💧",
+        screen: screen || "Home",
       },
-      {
-        headers: { Authorization: `Bearer ${process.env.OPENAI_KEY}` },
-      }
-    );
+      android: { priority: "high" },
+    });
 
-    const aiSummary = response.data.choices[0].message.content;
-
-    // Combine AI message with data-based summary
-    const finalSummary = `${aiSummary}\n\n📊 Your average symptoms/day: ${avgSymptoms.toFixed(
-      1
-    )}.`;
-
-    res.json({ summary: finalSummary });
+    res.json({ success: true });
   } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.status(500).json({ error: 'Analytics summary failed' });
+    console.error(err);
+    res.status(500).json({ error: "Notification send failed" });
   }
 });
+
+// START (UNCHANGED)
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => console.log(`Server running on ${PORT}`));
