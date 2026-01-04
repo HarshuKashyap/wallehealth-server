@@ -1,25 +1,23 @@
-require('dotenv').config();
-const express = require('express');
-const axios = require('axios');
-const bodyParser = require('body-parser');
-const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-
-// 🔔 ADDED (NOTHING REMOVED)
+require("dotenv").config();
+const express = require("express");
+const axios = require("axios");
+const bodyParser = require("body-parser");
+const cors = require("cors");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 const admin = require("firebase-admin");
 
 const app = express();
 
-// ✅ REQUIRED FOR RENDER (RATE LIMIT FIX)
+/* ================= RENDER FIX ================= */
 app.set("trust proxy", 1);
 
-// 🔥 TEST ROUTE — सबसे ऊपर (UNCHANGED)
+/* ================= TEST ROUTE ================= */
 app.get("/test", (req, res) => {
   res.json({ status: "Server running OK!" });
 });
 
-// 🔐 FIREBASE ADMIN INIT (ADDED ONLY)
+/* ================= FIREBASE ADMIN INIT ================= */
 admin.initializeApp({
   credential: admin.credential.cert({
     projectId: process.env.FIREBASE_PROJECT_ID,
@@ -28,10 +26,10 @@ admin.initializeApp({
   }),
 });
 
-// Security (UNCHANGED)
+/* ================= SECURITY ================= */
 app.use(helmet());
 app.use(cors());
-app.use(bodyParser.json({ limit: '64kb' }));
+app.use(bodyParser.json({ limit: "64kb" }));
 
 app.use(
   rateLimit({
@@ -40,10 +38,11 @@ app.use(
   })
 );
 
-// API KEY Auth (UNCHANGED)
+/* ================= API KEY AUTH ================= */
 function auth(req, res, next) {
   const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: "No authorization header" });
+  if (!authHeader)
+    return res.status(401).json({ error: "No authorization header" });
 
   const token = authHeader.split(" ")[1];
   if (token !== process.env.BASIC_API_KEY)
@@ -52,7 +51,7 @@ function auth(req, res, next) {
   next();
 }
 
-// CHAT (UNCHANGED)
+/* ================= CHAT ================= */
 app.post("/chat", auth, async (req, res) => {
   try {
     const { message } = req.body;
@@ -85,7 +84,7 @@ app.post("/chat", auth, async (req, res) => {
   }
 });
 
-// SUMMARY (UNCHANGED)
+/* ================= SUMMARY ================= */
 app.post("/symptom-summary", auth, async (req, res) => {
   try {
     const { symptoms } = req.body;
@@ -113,32 +112,49 @@ app.post("/symptom-summary", auth, async (req, res) => {
   }
 });
 
-// 🔔 SEND NOTIFICATION (ADDED ONLY – DATA-ONLY FCM)
+/* =====================================================
+   🔔 SEND NOTIFICATION + SAVE TO FIRESTORE (FINAL)
+   ===================================================== */
 app.post("/send", auth, async (req, res) => {
   try {
-    const { token, title, body, screen } = req.body;
+    const { token, title, body, screen, userId } = req.body;
 
-    if (!token) {
-      return res.status(400).json({ error: "FCM token required" });
+    if (!token || !userId) {
+      return res.status(400).json({ error: "token & userId required" });
     }
 
+    // 1️⃣ SEND PUSH
     await admin.messaging().send({
       token,
       data: {
-        title: title || "Daily Health Reminder",
+        title: title || "WALLE Health",
         body: body || "Bro thoda paani pee lo 💧",
         screen: screen || "Home",
       },
       android: { priority: "high" },
     });
 
+    // 2️⃣ 🔥 DIRECT SAVE (NO QUERY)
+    await admin.firestore().collection("notifications").add({
+      userId,
+      title: title || "WALLE Health",
+      message: body || "Bro thoda paani pee lo 💧",
+      screen: screen || "Home",
+      read: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      expiresAt: admin.firestore.Timestamp.fromDate(
+        new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+      ),
+    });
+
     res.json({ success: true });
   } catch (err) {
-    console.error(err);
+    console.error("❌ SEND ERROR:", err);
     res.status(500).json({ error: "Notification send failed" });
   }
 });
 
-// START (UNCHANGED)
+
+/* ================= START SERVER ================= */
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`Server running on ${PORT}`));
