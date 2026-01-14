@@ -112,6 +112,70 @@ app.post("/symptom-summary", auth, async (req, res) => {
   }
 });
 
+app.post("/daily-tasks", auth, async (req, res) => {
+  try {
+    const { symptoms } = req.body;
+
+    const text = symptoms
+      .map((s) => `- ${s.text || ""}`)
+      .join("\n");
+
+    const prompt = `
+User ke recent symptoms:
+${text}
+
+In symptoms ke base par 3 daily health tasks banao:
+
+1. Body Task (physical care)
+2. Mind Task (mental care)
+3. Awareness Task (self reflection / journaling)
+
+Rules:
+- Har task ek line ka ho
+- Medical diagnosis mat do
+- Caring & supportive tone ho
+- Aaj ke liye fresh ho (repeat na ho)
+
+Output sirf JSON me do:
+{
+  "body": { "task": "", "reason": "" },
+  "mind": { "task": "", "reason": "" },
+  "awareness": { "task": "", "reason": "" }
+}
+`;
+
+    const response = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: process.env.OPENAI_MODEL,
+        messages: [
+          { role: "system", content: "You generate safe daily health tasks." },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.6,
+        max_tokens: 300,
+      },
+      { headers: { Authorization: `Bearer ${process.env.OPENAI_KEY}` } }
+    );
+
+    const raw = response.data.choices[0].message.content;
+
+    // 🔥 Sirf JSON part nikaalo
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) {
+      throw new Error("Invalid JSON from AI");
+    }
+
+    const json = JSON.parse(match[0]);
+
+
+    res.json(json);
+  } catch (err) {
+    console.error("DAILY TASK AI ERROR:", err);
+    res.status(500).json({ error: "Daily task generation failed" });
+  }
+});
+
 /* =====================================================
    🔔 SEND NOTIFICATION + SAVE TO FIRESTORE (FINAL)
    ===================================================== */
@@ -127,25 +191,28 @@ app.post("/send", auth, async (req, res) => {
     await admin.messaging().send({
       token,
       data: {
-        title: title || "WALLE Health",
-        body: body || "Bro thoda paani pee lo 💧",
+        title,
+        body,
         screen: screen || "Home",
       },
       android: { priority: "high" },
     });
 
-    // 2️⃣ 🔥 DIRECT SAVE (NO QUERY)
-    await admin.firestore().collection("notifications").add({
-      userId,
-      title: title || "WALLE Health",
-      message: body || "Bro thoda paani pee lo 💧",
-      screen: screen || "Home",
-      read: false,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      expiresAt: admin.firestore.Timestamp.fromDate(
-        new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-      ),
-    });
+
+    // 2️⃣ 🔥 SAVE USER-WISE
+    await admin.firestore()
+      .collection("users")
+      .doc(userId)
+      .collection("notifications")
+      .add({
+        title,
+        message: body,
+        screen: screen || "Home",
+        read: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+
 
     res.json({ success: true });
   } catch (err) {
