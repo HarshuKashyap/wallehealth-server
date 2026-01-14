@@ -176,6 +176,65 @@ Output sirf JSON me do:
   }
 });
 
+app.post("/weekly-summary", auth, async (req, res) => {
+  try {
+    const { days } = req.body;
+
+    const text = days
+      .map(
+        (d, i) =>
+          `Day ${i + 1}:
+Symptoms: ${d.symptoms.join(", ") || "None"}
+Tasks Done: ${d.done}/${d.total}`
+      )
+      .join("\n\n");
+
+    const prompt = `
+You are a caring health companion.
+
+Here is user's last 7 days data:
+${text}
+
+Write a short, warm weekly reflection in simple English.
+Rules:
+- No diagnosis
+- Supportive & human tone
+- 3–4 lines only
+- Encourage gently
+
+Example style:
+"Is week you felt tired more often.
+Still, you showed up for yourself.
+Next week, let’s focus on better sleep and hydration."
+`;
+
+    const response = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: process.env.OPENAI_MODEL,
+        messages: [
+          { role: "system", content: "You generate weekly health reflections." },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.5,
+        max_tokens: 200,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
+        },
+      }
+    );
+
+    const message = response.data.choices[0].message.content;
+
+    res.json({ message });
+  } catch (e) {
+    console.error("WEEKLY SUMMARY ERROR:", e);
+    res.status(500).json({ error: "Weekly summary failed" });
+  }
+});
+
 /* =====================================================
    🔔 SEND NOTIFICATION + SAVE TO FIRESTORE (FINAL)
    ===================================================== */
