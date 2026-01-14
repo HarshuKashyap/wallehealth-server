@@ -235,6 +235,54 @@ Next week, let’s focus on better sleep and hydration."
   }
 });
 
+const PDFDocument = require("pdfkit");
+
+app.post("/weekly-report-pdf", auth, async (req, res) => {
+  try {
+    const { message, days, userName } = req.body;
+
+    const doc = new PDFDocument();
+    let buffers = [];
+
+    doc.on("data", buffers.push.bind(buffers));
+    doc.on("end", () => {
+      const pdfData = Buffer.concat(buffers);
+      res
+        .writeHead(200, {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": "attachment; filename=weekly_report.pdf",
+        })
+        .end(pdfData);
+    });
+
+    doc.fontSize(20).text("WALLE – Weekly Health Report", { align: "center" });
+    doc.moveDown();
+    doc.fontSize(14).text(`Patient: ${userName || "User"}`);
+    doc.moveDown();
+
+    doc.fontSize(12).text("Weekly Reflection:");
+    doc.moveDown();
+    doc.text(message);
+    doc.moveDown();
+
+    doc.fontSize(12).text("7-Day Summary:");
+    doc.moveDown();
+
+    days.forEach((d, i) => {
+      doc.text(
+        `Day ${i + 1}\nSymptoms: ${d.symptoms.join(", ") || "None"}\nTasks: ${d.done}/${d.total}\n`
+      );
+      doc.moveDown();
+    });
+
+    doc.end();
+  } catch (e) {
+    console.error("PDF ERROR:", e);
+    res.status(500).json({ error: "PDF generation failed" });
+  }
+});
+
+
 /* =====================================================
    🔔 SEND NOTIFICATION + SAVE TO FIRESTORE (FINAL)
    ===================================================== */
