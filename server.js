@@ -328,6 +328,76 @@ app.post("/send", auth, async (req, res) => {
   }
 });
 
+/* =====================================================
+   🤖 AUTO NUDGE ENGINE (RAPIDO STYLE)
+   ===================================================== */
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function dateOnly(d = new Date()) {
+  return d.toISOString().split("T")[0];
+}
+
+async function runAutoNudge() {
+  try {
+    console.log("🤖 Auto-nudge scan started...");
+
+    const snap = await admin.firestore().collection("users").get();
+    const now = new Date();
+    const todayStr = dateOnly(now);
+
+    for (const doc of snap.docs) {
+      const data = doc.data();
+
+      const token = data.fcmToken;
+      const lastOpen = data.lastOpenDate; // "2026-01-16" format
+      const lastNudgeAt = data.lastNudgeAt;
+
+      if (!token || !lastOpen) continue;
+
+      // Same day dobara mat bhejo
+      if (lastNudgeAt === todayStr) continue;
+
+      const last = new Date(lastOpen);
+      const diffDays = Math.floor((now - last) / DAY_MS);
+
+      // 2 din se inactive
+      if (diffDays >= 2) {
+        const title = "We missed you 💙";
+        const body =
+          "Bas ek minute ka check-in tumhari health ke liye kaafi hai. WALLE yahin hai.";
+
+        await admin.messaging().send({
+          token,
+          data: {
+            title,
+            body,
+            screen: "Home",
+          },
+          android: { priority: "high" },
+        });
+
+        // Firestore update
+        await admin.firestore().collection("users").doc(doc.id).set(
+          {
+            lastNudgeAt: todayStr,
+          },
+          { merge: true }
+        );
+
+        console.log(`🔔 Nudge sent to ${doc.id}`);
+      }
+    }
+  } catch (e) {
+    console.error("AUTO NUDGE ERROR:", e);
+  }
+}
+
+// 🔁 Har 6 ghante me chale
+setInterval(runAutoNudge, 6 * 60 * 60 * 1000);
+
+// Server start hote hi ek baar run
+setTimeout(runAutoNudge, 20 * 1000);
 
 /* ================= START SERVER ================= */
 const PORT = process.env.PORT || 8080;
