@@ -389,19 +389,37 @@ async function runAutoNudge() {
       const data = doc.data();
 
       const token = data.fcmToken;
-      const lastOpen = data.lastOpenDate;
-      const lastNudgeAt = data.lastNudgeAt;
-      const lastNudgeKey = data.lastNudgeKey;
-      const streak = data.streak || 0;
+   const lastOpen = data.lastOpenDate;
+   const lastSymptomAt = data.lastSymptomAt;
+   const lastTaskDoneAt = data.lastTaskDoneAt;
 
-      if (!token || !lastOpen) continue;
-      if (lastNudgeAt === todayStr) continue;
+   const lastNudgeAt = data.lastNudgeAt;
+   const lastNudgeKey = data.lastNudgeKey;
+   const streak = data.streak || 0;
 
-      const last = new Date(lastOpen);
-      const diffDays = Math.floor((now - last) / DAY_MS);
+   // ye dono rehne hi chahiye
+   if (!token || !lastOpen) continue;
+   if (lastNudgeAt === todayStr) continue;
 
-      const tone = decideTone(diffDays, streak);
-      if (!tone) continue;
+   const diffOpen = Math.floor((now - new Date(lastOpen)) / DAY_MS);
+
+   const diffSymptom = lastSymptomAt
+     ? Math.floor((now - new Date(lastSymptomAt)) / DAY_MS)
+     : 999;
+
+   const diffTask = lastTaskDoneAt
+     ? Math.floor((now - new Date(lastTaskDoneAt)) / DAY_MS)
+     : 999;
+
+   // 🔥 yahin ab real behavior se tone decide hoga
+   let tone = null;
+
+   if (diffOpen >= 3) tone = "emotional";        // app hi open nahi
+   else if (diffSymptom >= 3) tone = "care";     // symptom ignore
+   else if (diffTask >= 2) tone = "soft";        // task ignore
+   else if (streak >= 5) tone = "proud";         // good habit
+
+   if (!tone) continue;
 
       const { msg, key } = pickNonRepeat(buckets[tone], lastNudgeKey);
 
