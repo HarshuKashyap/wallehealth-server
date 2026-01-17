@@ -399,6 +399,12 @@ setInterval(runAutoNudge, 6 * 60 * 60 * 1000);
 // Server start hote hi ek baar run
 setTimeout(runAutoNudge, 20 * 1000);
 
+app.get("/auto-nudge", async (req, res) => {
+  await runAutoNudge();
+  res.json({ status: "Auto nudge executed" });
+});
+
+
 /* ================= START SERVER ================= */
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`Server running on ${PORT}`));
