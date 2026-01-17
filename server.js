@@ -241,6 +241,10 @@ app.post("/weekly-report-pdf", auth, async (req, res) => {
   try {
     const { message, days, userName } = req.body;
 
+    if (!days || !Array.isArray(days) || days.length === 0) {
+      return res.status(400).json({ error: "No weekly data" });
+    }
+
     const doc = new PDFDocument();
     let buffers = [];
 
@@ -262,7 +266,7 @@ app.post("/weekly-report-pdf", auth, async (req, res) => {
 
     doc.fontSize(12).text("Weekly Reflection:");
     doc.moveDown();
-    doc.text(message);
+    doc.text(message || "No reflection available.");
     doc.moveDown();
 
     doc.fontSize(12).text("7-Day Summary:");
@@ -270,7 +274,7 @@ app.post("/weekly-report-pdf", auth, async (req, res) => {
 
     days.forEach((d, i) => {
       doc.text(
-        `Day ${i + 1}\nSymptoms: ${d.symptoms.join(", ") || "None"}\nTasks: ${d.done}/${d.total}\n`
+        `Day ${i + 1}\nSymptoms: ${d.symptoms?.join(", ") || "None"}\nTasks: ${d.done}/${d.total}\n`
       );
       doc.moveDown();
     });
@@ -281,6 +285,7 @@ app.post("/weekly-report-pdf", auth, async (req, res) => {
     res.status(500).json({ error: "PDF generation failed" });
   }
 });
+
 
 
 /* =====================================================
