@@ -329,7 +329,7 @@ app.post("/send", auth, async (req, res) => {
 });
 
 /* =====================================================
-   🤖 AUTO NUDGE ENGINE (RAPIDO STYLE)
+   🤖 AUTO NUDGE ENGINE (SMART – DUOLINGO STYLE)
    ===================================================== */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -338,9 +338,48 @@ function dateOnly(d = new Date()) {
   return d.toISOString().split("T")[0];
 }
 
+const buckets = {
+  soft: [
+    "Bas 1 minute do, apne aaj ke haal ka update kar do 💙",
+    "Aaj khud se pooch lo – body kaisi lag rahi hai?",
+    "WALLE bas check-in chahta hai, aur kuch nahi."
+  ],
+  care: [
+    "Tum theek ho na? WALLE yahin hai 🤍",
+    "Health ko ignore karna aadat na ban jaye… isliye yaad dila rahe hain.",
+    "Khud ka khayal lena bhi ek strength hai."
+  ],
+  emotional: [
+    "Tum kahin kho gaye ho… WALLE wait kar raha hai.",
+    "Kya sab theek chal raha hai? Tum important ho.",
+    "Aaj bhi khud ko thoda sa time nahi doge?"
+  ],
+  proud: [
+    "Tumhara streak grow kar raha hai – ye tumhari aadat ban rahi hai 👏",
+    "Lagataar effort dikh raha hai. Proud of you!",
+    "Self-care ab tumhari routine ban rahi hai."
+  ]
+};
+
+function pickNonRepeat(list, lastKey) {
+  const filtered = list.filter((_, i) => `${i}` !== lastKey);
+  const idx = Math.floor(Math.random() * filtered.length);
+  const msg = filtered[idx];
+  const realIndex = list.indexOf(msg);
+  return { msg, key: `${realIndex}` };
+}
+
+function decideTone(diffDays, streak) {
+  if (streak >= 5) return "proud";
+  if (diffDays >= 3) return "emotional";
+  if (diffDays === 2) return "care";
+  if (diffDays === 1) return "soft";
+  return null;
+}
+
 async function runAutoNudge() {
   try {
-    console.log("🤖 Auto-nudge scan started...");
+    console.log("🤖 Smart Auto-nudge scan started...");
 
     const snap = await admin.firestore().collection("users").get();
     const now = new Date();
@@ -350,48 +389,49 @@ async function runAutoNudge() {
       const data = doc.data();
 
       const token = data.fcmToken;
-      const lastOpen = data.lastOpenDate; // "2026-01-16" format
+      const lastOpen = data.lastOpenDate;
       const lastNudgeAt = data.lastNudgeAt;
+      const lastNudgeKey = data.lastNudgeKey;
+      const streak = data.streak || 0;
 
       if (!token || !lastOpen) continue;
-
-      // Same day dobara mat bhejo
       if (lastNudgeAt === todayStr) continue;
 
       const last = new Date(lastOpen);
       const diffDays = Math.floor((now - last) / DAY_MS);
 
-      // 2 din se inactive
-      if (diffDays >= 2) {
-        const title = "We missed you 💙";
-        const body =
-          "Bas ek minute ka check-in tumhari health ke liye kaafi hai. WALLE yahin hai.";
+      const tone = decideTone(diffDays, streak);
+      if (!tone) continue;
 
-        await admin.messaging().send({
-          token,
-          data: {
-            title,
-            body,
-            screen: "Home",
-          },
-          android: { priority: "high" },
-        });
+      const { msg, key } = pickNonRepeat(buckets[tone], lastNudgeKey);
 
-        // Firestore update
-        await admin.firestore().collection("users").doc(doc.id).set(
-          {
-            lastNudgeAt: todayStr,
-          },
-          { merge: true }
-        );
+      await admin.messaging().send({
+        token,
+        data: {
+          title: "WALLE 💙",
+          body: msg,
+          screen: "Home",
+        },
+        android: { priority: "high" },
+      });
 
-        console.log(`🔔 Nudge sent to ${doc.id}`);
-      }
+      await admin.firestore().collection("users").doc(doc.id).set(
+        {
+          lastNudgeAt: todayStr,
+          lastNudgeKey: key,
+        },
+        { merge: true }
+      );
     }
   } catch (e) {
-    console.error("AUTO NUDGE ERROR:", e);
+    console.error("SMART AUTO NUDGE ERROR:", e);
   }
 }
+
+// हर 6 घंटे
+setInterval(runAutoNudge, 6 * 60 * 60 * 1000);
+setTimeout(runAutoNudge, 20 * 1000);
+
 
 // 🔁 Har 6 ghante me chale
 setInterval(runAutoNudge, 6 * 60 * 60 * 1000);
