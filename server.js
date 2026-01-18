@@ -433,6 +433,38 @@ async function runAutoNudge() {
     for (const doc of snap.docs) {
       const data = doc.data();
 
+      const hour = now.getHours();
+
+      // 🔔 Raat 9–10 baje ke beech task reminder
+      if (hour >= 21 && hour <= 22) {
+        const todayTask = data.todayTask;
+
+        if (todayTask && todayTask.completed === false) {
+          await admin.messaging().send({
+            token: data.fcmToken,
+            data: {
+              title: "⏰ Daily Task Pending",
+              body: "Your health task for today is still pending. Just 1 minute 💙",
+              screen: "DailyTask",
+            },
+            android: { priority: "high" },
+          });
+
+          await admin.firestore()
+            .collection("users")
+            .doc(doc.id)
+            .collection("notifications")
+            .add({
+              title: "⏰ Daily Task Pending",
+              message: "Your health task for today is still pending. Just 1 minute 💙",
+              screen: "DailyTask",
+              read: false,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
+      }
+
+
       const token = data.fcmToken;
    const lastOpen = data.lastOpenDate;
    const lastSymptomAt = data.lastSymptomAt;
