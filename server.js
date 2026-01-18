@@ -478,6 +478,19 @@ async function runAutoNudge() {
         android: { priority: "high" },
       });
 
+      // 🔥 YEH ADD KARO
+      await admin.firestore()
+        .collection("users")
+        .doc(doc.id)
+        .collection("notifications")
+        .add({
+          title: msg.title,
+          message: msg.body,
+          screen: "Home",
+          read: false,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
 
       await admin.firestore().collection("users").doc(doc.id).set(
         {
