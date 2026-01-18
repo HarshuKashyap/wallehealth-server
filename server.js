@@ -345,26 +345,66 @@ function dateOnly(d = new Date()) {
 
 const buckets = {
   soft: [
-    "Bas 1 minute do, apne aaj ke haal ka update kar do 💙",
-    "Aaj khud se pooch lo – body kaisi lag rahi hai?",
-    "WALLE bas check-in chahta hai, aur kuch nahi."
+    { title: "🩺 How are you feeling today?", body: "Bas 1 tap, batao aaj kaisa feel ho raha hai 🙂" },
+    { title: "💬 Quick check", body: "Aaj body thodi better lag rahi hai ya same?" },
+    { title: "🌤️ Morning check", body: "Good morning! Aaj ka mood kaisa hai?" },
+    { title: "🤍 We care", body: "Aaj kuch discomfort feel ho raha hai?" },
+    { title: "🧠 Mind & body", body: "Aaj stress zyada hai ya manageable?" },
+    { title: "😊 Hey you", body: "Aaj thoda better feel ho raha hai?" },
+    { title: "💭 Just asking", body: "Sab okay chal raha hai?" },
+    { title: "🌼 One tap check", body: "Batao aaj ka haal" },
+    { title: "⏱️ 30 sec check", body: "Sirf 30 sec, bas ek update" },
+    { title: "🌱 Small habit", body: "Roz thoda sa khayal = big change" },
+    { title: "🤗 Checking in", body: "Aaj khud ke liye time nikala?" },
+    { title: "🔔 Gentle ping", body: "Bas ek soft check-in 💙" },
   ],
+
   care: [
-    "Tum theek ho na? WALLE yahin hai 🤍",
-    "Health ko ignore karna aadat na ban jaye… isliye yaad dila rahe hain.",
-    "Khud ka khayal lena bhi ek strength hai."
+    { title: "🤒 Any symptoms today?", body: "Chhoti si update help karegi 💙" },
+    { title: "📋 Daily health log", body: "Aaj koi new symptom notice hua?" },
+    { title: "🩻 Body update", body: "Pain, fever ya weakness? Batao" },
+    { title: "🧾 Health reminder", body: "Symptoms track karna mat bhoolna 🙂" },
+    { title: "💧 Water break", body: "Thoda paani pee lo, body thank you bolegi 😉" },
+    { title: "🚰 Hydration check", body: "Last glass paani kab piya tha?" },
+    { title: "🌿 Care time", body: "Body ka khayal rakho, thoda hydrate ho jao" },
+    { title: "💊 Gentle reminder", body: "Medicine li ya nahi?" },
+    { title: "🩺 Health matters", body: "Aaj doctor ke advice follow hui?" },
+    { title: "📌 Care check", body: "Treatment routine on track hai?" },
+    { title: "🛌 Body needs rest", body: "Thoda rest bhi healing ka part hai" },
+    { title: "🌙 Sleep care", body: "Aaj time pe sone ka try karo" },
   ],
+
   emotional: [
-    "Tum kahin kho gaye ho… WALLE wait kar raha hai.",
-    "Kya sab theek chal raha hai? Tum important ho.",
-    "Aaj bhi khud ko thoda sa time nahi doge?"
+    { title: "🤍 Honest check", body: "Aaj sach me kaise ho?" },
+    { title: "🌸 Take a breath", body: "10 sec deep breath, abhi" },
+    { title: "🧠 Mind check", body: "Thakan physical ya mental?" },
+    { title: "🌤️ Mood check", body: "Aaj mood thoda upar ya neeche?" },
+    { title: "⏳ Pause moment", body: "Thoda ruk ke body suno" },
+    { title: "💭 Thought check", body: "Aaj ka din easy tha ya tough?" },
+    { title: "🤝 Support check", body: "Kuch help chahiye?" },
+    { title: "🌙 Peace check", body: "Thoda rest bhi zaroori hai" },
+    { title: "🤍 Just here", body: "WALLE yahin hai" },
+    { title: "🫶 Care note", body: "Tum important ho, health bhi" },
+    { title: "🌈 Hope", body: "Kal better ho sakta hai" },
+    { title: "💙 We’re with you", body: "Akele nahi ho, step by step" },
   ],
+
   proud: [
-    "Tumhara streak grow kar raha hai – ye tumhari aadat ban rahi hai 👏",
-    "Lagataar effort dikh raha hai. Proud of you!",
-    "Self-care ab tumhari routine ban rahi hai."
-  ]
+    { title: "🌟 Small progress", body: "Thoda better bhi progress hota hai" },
+    { title: "💚 Healing takes time", body: "Tum sahi direction me ho" },
+    { title: "🌈 Hope check", body: "Kal se better lag raha hai?" },
+    { title: "🤍 Keep going", body: "You’re doing good, honestly" },
+    { title: "👏 Proud of you", body: "Lagataar effort dikh raha hai" },
+    { title: "🔥 Consistency", body: "Roz thoda thoda = big change" },
+    { title: "🌱 Growth", body: "Self-care ab aadat ban rahi hai" },
+    { title: "💪 Strong habit", body: "Tum apni health ko priority de rahe ho" },
+    { title: "🌟 Well done", body: "Tum khud ke liye khade ho" },
+    { title: "🤝 Trust", body: "Is journey me tum akela nahi" },
+    { title: "🌈 Bright path", body: "Tum sahi raaste par ho" },
+    { title: "💙 Respect", body: "Khud ka khayal rakhna strength hai" },
+  ],
 };
+
 
 function pickNonRepeat(list, lastKey) {
   const filtered = list.filter((_, i) => `${i}` !== lastKey);
@@ -431,12 +471,13 @@ async function runAutoNudge() {
       await admin.messaging().send({
         token,
         data: {
-          title: "WALLE 💙",
-          body: msg,
+          title: msg.title,
+          body: msg.body,
           screen: "Home",
         },
         android: { priority: "high" },
       });
+
 
       await admin.firestore().collection("users").doc(doc.id).set(
         {
@@ -453,8 +494,6 @@ async function runAutoNudge() {
 
 // हर 6 घंटे
 setInterval(runAutoNudge, 6 * 60 * 60 * 1000);
-setTimeout(runAutoNudge, 20 * 1000);
-
 
 
 // Server start hote hi ek baar run
