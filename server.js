@@ -456,8 +456,6 @@ setInterval(runAutoNudge, 6 * 60 * 60 * 1000);
 setTimeout(runAutoNudge, 20 * 1000);
 
 
-// 🔁 Har 6 ghante me chale
-setInterval(runAutoNudge, 6 * 60 * 60 * 1000);
 
 // Server start hote hi ek baar run
 setTimeout(runAutoNudge, 20 * 1000);
