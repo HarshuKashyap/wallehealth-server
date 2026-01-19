@@ -54,22 +54,50 @@ function auth(req, res, next) {
 /* ================= CHAT ================= */
 app.post("/chat", auth, async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: "userId required" });
+    }
+
+    const userRef = admin.firestore().collection("users").doc(userId);
+
+    // 🔹 Last 6 messages memory se uthao
+    const historySnap = await userRef
+      .collection("ai_memory")
+      .orderBy("createdAt", "desc")
+      .limit(6)
+      .get();
+
+    const memory = [];
+    historySnap.docs.reverse().forEach((d) => {
+      const m = d.data();
+      memory.push({ role: m.role, content: m.text });
+    });
+
+    const systemPrompt = `
+You are WALLE, a caring health companion.
+- Never give medical diagnosis.
+- Remember user's feelings.
+- Speak warm, human, supportive.
+- If user is sad, be gentle.
+- If user is doing well, encourage.
+- Use past context to reply personally.
+`;
+
+    const messages = [
+      { role: "system", content: systemPrompt },
+      ...memory,
+      { role: "user", content: message },
+    ];
 
     const response = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
         model: process.env.OPENAI_MODEL,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a safe, helpful health assistant. Never give a diagnosis.",
-          },
-          { role: "user", content: message },
-        ],
-        temperature: 0.3,
-        max_tokens: 400,
+        messages,
+        temperature: 0.35,
+        max_tokens: 350,
       },
       {
         headers: {
@@ -78,11 +106,34 @@ app.post("/chat", auth, async (req, res) => {
       }
     );
 
-    res.json({ answer: response.data.choices[0].message.content });
+    const answer = response.data.choices[0].message.content;
+
+    // 🔹 Save conversation in memory
+    const batch = admin.firestore().batch();
+
+    const userMsgRef = userRef.collection("ai_memory").doc();
+    batch.set(userMsgRef, {
+      role: "user",
+      text: message,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    const aiMsgRef = userRef.collection("ai_memory").doc();
+    batch.set(aiMsgRef, {
+      role: "assistant",
+      text: answer,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await batch.commit();
+
+    res.json({ answer });
   } catch (err) {
+    console.error("CHAT ERROR:", err);
     res.status(500).json({ error: "Failed to fetch response" });
   }
 });
+
 
 /* ================= SUMMARY ================= */
 app.post("/symptom-summary", auth, async (req, res) => {
