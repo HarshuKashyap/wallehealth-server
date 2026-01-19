@@ -126,6 +126,19 @@ You are WALLE, a caring health companion.
     });
 
     await batch.commit();
+    // 🔒 Keep only last 20 messages in memory
+    const oldSnap = await userRef
+      .collection("ai_memory")
+      .orderBy("createdAt", "asc")
+      .get();
+
+    if (oldSnap.size > 20) {
+      const toDelete = oldSnap.docs.slice(0, oldSnap.size - 20);
+      const cleanBatch = admin.firestore().batch();
+      toDelete.forEach((d) => cleanBatch.delete(d.ref));
+      await cleanBatch.commit();
+    }
+
 
     res.json({ answer });
   } catch (err) {
@@ -517,6 +530,7 @@ async function runAutoNudge() {
 
 
       const token = data.fcmToken;
+      if (!token) continue;
    const lastOpen = data.lastOpenDate;
    const lastSymptomAt = data.lastSymptomAt;
    const lastTaskDoneAt = data.lastTaskDoneAt;
