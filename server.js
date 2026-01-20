@@ -552,6 +552,8 @@ async function runAutoNudge() {
     for (const doc of snap.docs) {
       const data = doc.data();
 
+
+
       const hour = now.getHours();
 
       // 🔔 Raat 9–10 baje ke beech task reminder
@@ -633,56 +635,97 @@ async function runAutoNudge() {
    else if (streak >= 5) tone = "proud";         // good habit
 
    if (!tone) continue;
+   // 🎉 Streak celebration (sirf special days par)
+   // 🎉 Streak celebration (sirf special days par)
+   if ([3, 7, 14].includes(streak)) {
+     try {
+       await admin.messaging().send({
+         token,
+         data: {
+           title: `🔥 ${streak}-day streak!`,
+           body: "Tumhari consistency amazing hai 💙",
+           screen: "Home",
+         },
+         android: { priority: "high" },
+       });
+     } catch (err) {
+       if (
+         err.code === "messaging/registration-token-not-registered" ||
+         err.code === "messaging/invalid-registration-token"
+       ) {
+         await admin.firestore().collection("users").doc(doc.id).set(
+           { fcmToken: admin.firestore.FieldValue.delete() },
+           { merge: true }
+         );
+       }
+     }
+   }
+   // ⏱️ Preferred time & DND (sirf normal nudges ke liye)
+   const preferred = data.preferredNudgeHour || 10;
+   const dnd = data.doNotDisturb;
+   const h = now.getHours();
 
-      const { msg, key } = pickNonRepeat(buckets[tone], lastNudgeKey);
+   if (dnd) {
+     if (h >= dnd.from || h < dnd.to) {
+       continue;
+     }
+   }
 
-      try {
-        await admin.messaging().send({
-          token,
-          data: {
-            title: msg.title,
-            body: msg.body,
-            screen: "Home",
-          },
-          android: { priority: "high" },
-        });
-      } catch (err) {
-        if (
-          err.code === "messaging/registration-token-not-registered" ||
-          err.code === "messaging/invalid-registration-token"
-        ) {
-          await admin.firestore().collection("users").doc(doc.id).set(
-            {
-              fcmToken: admin.firestore.FieldValue.delete(),
-            },
-            { merge: true }
-          );
-        }
-        continue;
-      }
-
-
-      // 🔥 YEH ADD KARO
-      await admin.firestore()
-        .collection("users")
-        .doc(doc.id)
-        .collection("notifications")
-        .add({
-          title: msg.title,
-          message: msg.body,
-          screen: "Home",
-          read: false,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+   if (h !== preferred) continue;
 
 
-      await admin.firestore().collection("users").doc(doc.id).set(
-        {
-          lastNudgeAt: todayStr,
-          lastNudgeKey: key,
-        },
-        { merge: true }
-      );
+   // 🔔 Normal smart nudge
+   const { msg, key } = pickNonRepeat(buckets[tone], lastNudgeKey);
+   const lastSymptom = data.lastSymptomText || "";
+   let customBody = msg.body;
+
+   if (lastSymptom) {
+     customBody = `Aaj ${lastSymptom} better lag raha hai?`;
+   }
+
+   try {
+     await admin.messaging().send({
+       token,
+       data: {
+         title: msg.title,
+         body: customBody,
+         screen: "Home",
+       },
+       android: { priority: "high" },
+     });
+   } catch (err) {
+     if (
+       err.code === "messaging/registration-token-not-registered" ||
+       err.code === "messaging/invalid-registration-token"
+     ) {
+       await admin.firestore().collection("users").doc(doc.id).set(
+         { fcmToken: admin.firestore.FieldValue.delete() },
+         { merge: true }
+       );
+     }
+     continue;
+   }
+
+   await admin.firestore()
+     .collection("users")
+     .doc(doc.id)
+     .collection("notifications")
+     .add({
+       title: msg.title,
+       message: customBody,
+       screen: "Home",
+       read: false,
+       createdAt: admin.firestore.FieldValue.serverTimestamp(),
+     });
+
+   await admin.firestore().collection("users").doc(doc.id).set(
+     {
+       lastNudgeAt: todayStr,
+       lastNudgeKey: key,
+     },
+     { merge: true }
+   );
+
     }
   } catch (e) {
     console.error("SMART AUTO NUDGE ERROR:", e);
