@@ -51,6 +51,54 @@ function auth(req, res, next) {
   next();
 }
 
+app.post("/welcome", auth, async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: "userId required" });
+    }
+
+    const snap = await admin.firestore().collection("users").doc(userId).get();
+    if (!snap.exists) return res.status(404).json({ error: "User not found" });
+
+    const data = snap.data();
+    if (!data.fcmToken) {
+      return res.json({ skipped: true });
+    }
+
+    const title = "👋 Welcome to WALLE";
+    const body = "WALLE is here to take care of your mind & body, every day 💙";
+
+    await admin.messaging().send({
+      token: data.fcmToken,
+      data: {
+        title,
+        body,
+        screen: "Home",
+      },
+      android: { priority: "high" },
+    });
+
+    await admin.firestore()
+      .collection("users")
+      .doc(userId)
+      .collection("notifications")
+      .add({
+        title,
+        message: body,
+        screen: "Home",
+        read: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error("WELCOME ERROR:", e);
+    res.status(500).json({ error: "Welcome failed" });
+  }
+});
+
 /* ================= CHAT ================= */
 app.post("/chat", auth, async (req, res) => {
   try {
