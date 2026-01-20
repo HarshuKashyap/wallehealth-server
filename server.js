@@ -559,29 +559,43 @@ async function runAutoNudge() {
         const todayTask = data.todayTask;
 
         if (todayTask && todayTask.completed === false) {
-          await admin.messaging().send({
-            token: data.fcmToken,
-            data: {
-              title: "⏰ Daily Task Pending",
-              body: "Your health task for today is still pending. Just 1 minute 💙",
-              screen: "DailyTask",
-            },
-            android: { priority: "high" },
-          });
-
-          await admin.firestore()
-            .collection("users")
-            .doc(doc.id)
-            .collection("notifications")
-            .add({
-              title: "⏰ Daily Task Pending",
-              message: "Your health task for today is still pending. Just 1 minute 💙",
-              screen: "DailyTask",
-              read: false,
-              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          try {
+            await admin.messaging().send({
+              token: data.fcmToken,
+              data: {
+                title: "⏰ Daily Task Pending",
+                body: "Your health task for today is still pending. Just 1 minute 💙",
+                screen: "DailyTask",
+              },
+              android: { priority: "high" },
             });
+
+            await admin.firestore()
+              .collection("users")
+              .doc(doc.id)
+              .collection("notifications")
+              .add({
+                title: "⏰ Daily Task Pending",
+                message: "Your health task for today is still pending. Just 1 minute 💙",
+                screen: "DailyTask",
+                read: false,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+          } catch (err) {
+            if (
+              err.code === "messaging/registration-token-not-registered" ||
+              err.code === "messaging/invalid-registration-token"
+            ) {
+              await admin.firestore().collection("users").doc(doc.id).set(
+                {
+                  fcmToken: admin.firestore.FieldValue.delete(),
+                },
+                { merge: true }
+              );
+            }
+          }
         }
-      }
+
 
 
       const token = data.fcmToken;
@@ -620,15 +634,31 @@ async function runAutoNudge() {
 
       const { msg, key } = pickNonRepeat(buckets[tone], lastNudgeKey);
 
-      await admin.messaging().send({
-        token,
-        data: {
-          title: msg.title,
-          body: msg.body,
-          screen: "Home",
-        },
-        android: { priority: "high" },
-      });
+      try {
+        await admin.messaging().send({
+          token,
+          data: {
+            title: msg.title,
+            body: msg.body,
+            screen: "Home",
+          },
+          android: { priority: "high" },
+        });
+      } catch (err) {
+        if (
+          err.code === "messaging/registration-token-not-registered" ||
+          err.code === "messaging/invalid-registration-token"
+        ) {
+          await admin.firestore().collection("users").doc(doc.id).set(
+            {
+              fcmToken: admin.firestore.FieldValue.delete(),
+            },
+            { merge: true }
+          );
+        }
+        continue;
+      }
+
 
       // 🔥 YEH ADD KARO
       await admin.firestore()
