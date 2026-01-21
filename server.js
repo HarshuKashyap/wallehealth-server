@@ -462,76 +462,7 @@ function dateOnly(d = new Date()) {
   return d.toISOString().split("T")[0];
 }
 
-const buckets = {
-  soft: [
-    { title: "🩺 How are you feeling today?", body: "Bas 1 tap, batao aaj kaisa feel ho raha hai 🙂" },
-    { title: "💬 Quick check", body: "Aaj body thodi better lag rahi hai ya same?" },
-    { title: "🌤️ Morning check", body: "Good morning! Aaj ka mood kaisa hai?" },
-    { title: "🤍 We care", body: "Aaj kuch discomfort feel ho raha hai?" },
-    { title: "🧠 Mind & body", body: "Aaj stress zyada hai ya manageable?" },
-    { title: "😊 Hey you", body: "Aaj thoda better feel ho raha hai?" },
-    { title: "💭 Just asking", body: "Sab okay chal raha hai?" },
-    { title: "🌼 One tap check", body: "Batao aaj ka haal" },
-    { title: "⏱️ 30 sec check", body: "Sirf 30 sec, bas ek update" },
-    { title: "🌱 Small habit", body: "Roz thoda sa khayal = big change" },
-    { title: "🤗 Checking in", body: "Aaj khud ke liye time nikala?" },
-    { title: "🔔 Gentle ping", body: "Bas ek soft check-in 💙" },
-  ],
 
-  care: [
-    { title: "🤒 Any symptoms today?", body: "Chhoti si update help karegi 💙" },
-    { title: "📋 Daily health log", body: "Aaj koi new symptom notice hua?" },
-    { title: "🩻 Body update", body: "Pain, fever ya weakness? Batao" },
-    { title: "🧾 Health reminder", body: "Symptoms track karna mat bhoolna 🙂" },
-    { title: "💧 Water break", body: "Thoda paani pee lo, body thank you bolegi 😉" },
-    { title: "🚰 Hydration check", body: "Last glass paani kab piya tha?" },
-    { title: "🌿 Care time", body: "Body ka khayal rakho, thoda hydrate ho jao" },
-    { title: "💊 Gentle reminder", body: "Medicine li ya nahi?" },
-    { title: "🩺 Health matters", body: "Aaj doctor ke advice follow hui?" },
-    { title: "📌 Care check", body: "Treatment routine on track hai?" },
-    { title: "🛌 Body needs rest", body: "Thoda rest bhi healing ka part hai" },
-    { title: "🌙 Sleep care", body: "Aaj time pe sone ka try karo" },
-  ],
-
-  emotional: [
-    { title: "🤍 Honest check", body: "Aaj sach me kaise ho?" },
-    { title: "🌸 Take a breath", body: "10 sec deep breath, abhi" },
-    { title: "🧠 Mind check", body: "Thakan physical ya mental?" },
-    { title: "🌤️ Mood check", body: "Aaj mood thoda upar ya neeche?" },
-    { title: "⏳ Pause moment", body: "Thoda ruk ke body suno" },
-    { title: "💭 Thought check", body: "Aaj ka din easy tha ya tough?" },
-    { title: "🤝 Support check", body: "Kuch help chahiye?" },
-    { title: "🌙 Peace check", body: "Thoda rest bhi zaroori hai" },
-    { title: "🤍 Just here", body: "WALLE yahin hai" },
-    { title: "🫶 Care note", body: "Tum important ho, health bhi" },
-    { title: "🌈 Hope", body: "Kal better ho sakta hai" },
-    { title: "💙 We’re with you", body: "Akele nahi ho, step by step" },
-  ],
-
-  proud: [
-    { title: "🌟 Small progress", body: "Thoda better bhi progress hota hai" },
-    { title: "💚 Healing takes time", body: "Tum sahi direction me ho" },
-    { title: "🌈 Hope check", body: "Kal se better lag raha hai?" },
-    { title: "🤍 Keep going", body: "You’re doing good, honestly" },
-    { title: "👏 Proud of you", body: "Lagataar effort dikh raha hai" },
-    { title: "🔥 Consistency", body: "Roz thoda thoda = big change" },
-    { title: "🌱 Growth", body: "Self-care ab aadat ban rahi hai" },
-    { title: "💪 Strong habit", body: "Tum apni health ko priority de rahe ho" },
-    { title: "🌟 Well done", body: "Tum khud ke liye khade ho" },
-    { title: "🤝 Trust", body: "Is journey me tum akela nahi" },
-    { title: "🌈 Bright path", body: "Tum sahi raaste par ho" },
-    { title: "💙 Respect", body: "Khud ka khayal rakhna strength hai" },
-  ],
-};
-
-
-function pickNonRepeat(list, lastKey) {
-  const filtered = list.filter((_, i) => `${i}` !== lastKey);
-  const idx = Math.floor(Math.random() * filtered.length);
-  const msg = filtered[idx];
-  const realIndex = list.indexOf(msg);
-  return { msg, key: `${realIndex}` };
-}
 
 function decideTone(diffDays, streak) {
   if (streak >= 5) return "proud";
@@ -539,6 +470,53 @@ function decideTone(diffDays, streak) {
   if (diffDays === 2) return "care";
   if (diffDays === 1) return "soft";
   return null;
+}
+async function generateAINudge({ tone, timeOfDay, lastMood }) {
+  const prompt = `
+You are WALLE, a warm health companion.
+
+Generate ONE short push notification.
+
+Context:
+- Tone: ${tone}
+- Time: ${timeOfDay} (morning / afternoon / night)
+- User last mood: ${lastMood || "unknown"}
+
+Rules:
+- 1 title line (max 40 chars)
+- 1 body line (max 90 chars)
+- No medical advice
+- Human, caring, simple
+- Do not repeat earlier style
+- Feel natural, not robotic
+
+Output JSON only:
+{
+  "title": "",
+  "body": ""
+}
+`;
+
+  const r = await axios.post(
+    "https://api.openai.com/v1/chat/completions",
+    {
+      model: process.env.OPENAI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.8,
+      max_tokens: 120,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_KEY}`,
+      },
+    }
+  );
+
+  const raw = r.data.choices[0].message.content;
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("Invalid AI nudge");
+
+  return JSON.parse(match[0]);
 }
 
 async function runAutoNudge() {
@@ -561,6 +539,8 @@ async function runAutoNudge() {
         const todayTask = data.todayTask;
 
         if (todayTask && todayTask.completed === false) {
+          if (!data.fcmToken) continue;
+
           try {
             await admin.messaging().send({
               token: data.fcmToken,
@@ -589,15 +569,14 @@ async function runAutoNudge() {
               err.code === "messaging/invalid-registration-token"
             ) {
               await admin.firestore().collection("users").doc(doc.id).set(
-                {
-                  fcmToken: admin.firestore.FieldValue.delete(),
-                },
+                { fcmToken: admin.firestore.FieldValue.delete() },
                 { merge: true }
               );
             }
           }
         }
-      }
+        }
+
 
 
 
@@ -674,59 +653,72 @@ async function runAutoNudge() {
    if (h !== preferred) continue;
 
 
-   // 🔔 Normal smart nudge
-   const { msg, key } = pickNonRepeat(buckets[tone], lastNudgeKey);
-   const lastSymptom = data.lastSymptomText || "";
-   let customBody = msg.body;
 
-   if (lastSymptom) {
-     customBody = `Aaj ${lastSymptom} better lag raha hai?`;
-   }
 
-   try {
-     await admin.messaging().send({
-       token,
-       data: {
-         title: msg.title,
-         body: customBody,
-         screen: "Home",
-       },
-       android: { priority: "high" },
-     });
-   } catch (err) {
-     if (
-       err.code === "messaging/registration-token-not-registered" ||
-       err.code === "messaging/invalid-registration-token"
-     ) {
-       await admin.firestore().collection("users").doc(doc.id).set(
-         { fcmToken: admin.firestore.FieldValue.delete() },
-         { merge: true }
-       );
-     }
-     continue;
-   }
 
-   await admin.firestore()
-     .collection("users")
-     .doc(doc.id)
-     .collection("notifications")
-     .add({
-       title: msg.title,
-       message: customBody,
-       screen: "Home",
-       read: false,
-       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-     });
 
-   await admin.firestore().collection("users").doc(doc.id).set(
-     {
-       lastNudgeAt: todayStr,
-       lastNudgeKey: key,
-     },
-     { merge: true }
-   );
+// 🧠 AI Generated Smart Nudge
+const timeOfDay =
+  now.getHours() < 12 ? "morning" :
+  now.getHours() < 18 ? "afternoon" :
+  "night";
 
-    }
+const lastMood = data.lastMood || "";
+
+let aiMsg;
+try {
+  aiMsg = await generateAINudge({
+    tone,
+    timeOfDay,
+    lastMood,
+  });
+} catch (e) {
+  console.error("AI NUDGE FAIL:", e);
+  continue;
+}
+
+try {
+  await admin.messaging().send({
+    token,
+    data: {
+      title: aiMsg.title,
+      body: aiMsg.body,
+      screen: "Home",
+    },
+    android: { priority: "high" },
+  });
+} catch (err) {
+  if (
+    err.code === "messaging/registration-token-not-registered" ||
+    err.code === "messaging/invalid-registration-token"
+  ) {
+    await admin.firestore().collection("users").doc(doc.id).set(
+      { fcmToken: admin.firestore.FieldValue.delete() },
+      { merge: true }
+    );
+  }
+  continue;
+}
+
+await admin.firestore()
+  .collection("users")
+  .doc(doc.id)
+  .collection("notifications")
+  .add({
+    title: aiMsg.title,
+    message: aiMsg.body,
+    screen: "Home",
+    read: false,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+await admin.firestore().collection("users").doc(doc.id).set(
+  {
+    lastNudgeAt: todayStr,
+  },
+  { merge: true }
+);
+
   } catch (e) {
     console.error("SMART AUTO NUDGE ERROR:", e);
   }
