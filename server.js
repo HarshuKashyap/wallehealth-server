@@ -531,7 +531,7 @@ async function runAutoNudge() {
       const data = doc.data();
 
 
-
+}
       const hour = now.getHours();
 
       // 🔔 Raat 9–10 baje ke beech task reminder
