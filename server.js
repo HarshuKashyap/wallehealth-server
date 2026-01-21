@@ -519,105 +519,95 @@ async function runAutoNudge() {
     const todayStr = dateOnly(now);
 
     for (const doc of snap.docs) {
-      const data = doc.data();
+      try {
+        const data = doc.data();
 
-      const hour = now.getHours();
+        const hour = now.getHours();
 
-      // 🔔 Night task reminder (9–10 PM)
-      if (hour >= 21 && hour <= 22) {
-        const todayTask = data.todayTask;
+        // 🔔 Night task reminder (9–10 PM)
+        if (hour >= 21 && hour <= 22) {
+          const todayTask = data.todayTask;
 
-        if (todayTask && todayTask.completed === false && data.fcmToken) {
-          try {
-            await admin.messaging().send({
-              token: data.fcmToken,
-              data: {
-                title: "⏰ Daily Task Pending",
-                body: "Your health task for today is still pending. Just 1 minute 💙",
-                screen: "DailyTask",
-              },
-              android: { priority: "high" },
-            });
-
-            await admin.firestore()
-              .collection("users")
-              .doc(doc.id)
-              .collection("notifications")
-              .add({
-                title: "⏰ Daily Task Pending",
-                message: "Your health task for today is still pending. Just 1 minute 💙",
-                screen: "DailyTask",
-                read: false,
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          if (todayTask && todayTask.completed === false && data.fcmToken) {
+            try {
+              await admin.messaging().send({
+                token: data.fcmToken,
+                data: {
+                  title: "⏰ Daily Task Pending",
+                  body: "Your health task for today is still pending. Just 1 minute 💙",
+                  screen: "DailyTask",
+                },
+                android: { priority: "high" },
               });
-          } catch (err) {
-            if (
-              err.code === "messaging/registration-token-not-registered" ||
-              err.code === "messaging/invalid-registration-token"
-            ) {
-              await admin.firestore().collection("users").doc(doc.id).set(
-                { fcmToken: admin.firestore.FieldValue.delete() },
-                { merge: true }
-              );
+
+              await admin.firestore()
+                .collection("users")
+                .doc(doc.id)
+                .collection("notifications")
+                .add({
+                  title: "⏰ Daily Task Pending",
+                  message: "Your health task for today is still pending. Just 1 minute 💙",
+                  screen: "DailyTask",
+                  read: false,
+                  createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+            } catch (err) {
+              if (
+                err.code === "messaging/registration-token-not-registered" ||
+                err.code === "messaging/invalid-registration-token"
+              ) {
+                await admin.firestore().collection("users").doc(doc.id).set(
+                  { fcmToken: admin.firestore.FieldValue.delete() },
+                  { merge: true }
+                );
+              }
             }
           }
         }
-      }
 
-      const token = data.fcmToken;
-      if (!token) continue;
+        const token = data.fcmToken;
+        if (!token) continue;
 
-      const lastOpen = data.lastOpenDate;
-      if (!lastOpen) continue;
-      if (data.lastNudgeAt === todayStr) continue;
+        const lastOpen = data.lastOpenDate;
+        if (!lastOpen) continue;
+        if (data.lastNudgeAt === todayStr) continue;
 
-      const streak = data.streak || 0;
+        const streak = data.streak || 0;
 
-      const diffOpen = Math.floor((now - new Date(lastOpen)) / DAY_MS);
-      const diffSymptom = data.lastSymptomAt
-        ? Math.floor((now - new Date(data.lastSymptomAt)) / DAY_MS)
-        : 999;
-      const diffTask = data.lastTaskDoneAt
-        ? Math.floor((now - new Date(data.lastTaskDoneAt)) / DAY_MS)
-        : 999;
+        const diffOpen = Math.floor((now - new Date(lastOpen)) / DAY_MS);
+        const diffSymptom = data.lastSymptomAt
+          ? Math.floor((now - new Date(data.lastSymptomAt)) / DAY_MS)
+          : 999;
+        const diffTask = data.lastTaskDoneAt
+          ? Math.floor((now - new Date(data.lastTaskDoneAt)) / DAY_MS)
+          : 999;
 
-      let tone = null;
-      if (diffOpen >= 3) tone = "emotional";
-      else if (diffSymptom >= 3) tone = "care";
-      else if (diffTask >= 2) tone = "soft";
-      else if (streak >= 5) tone = "proud";
+        let tone = null;
+        if (diffOpen >= 3) tone = "emotional";
+        else if (diffSymptom >= 3) tone = "care";
+        else if (diffTask >= 2) tone = "soft";
+        else if (streak >= 5) tone = "proud";
 
-      if (!tone) continue;
+        if (!tone) continue;
 
-      const preferred = data.preferredNudgeHour || 10;
-      const dnd = data.doNotDisturb;
-      const h = now.getHours();
+        const preferred = data.preferredNudgeHour || 10;
+        const dnd = data.doNotDisturb;
+        const h = now.getHours();
 
-      if (dnd) {
-        if (h >= dnd.from || h < dnd.to) continue;
-      }
-      if (h !== preferred) continue;
+        if (dnd) {
+          if (h >= dnd.from || h < dnd.to) continue;
+        }
+        if (h !== preferred) continue;
 
-      const timeOfDay =
-        now.getHours() < 12
-          ? "morning"
-          : now.getHours() < 18
-          ? "afternoon"
-          : "night";
+        const timeOfDay =
+          h < 12 ? "morning" : h < 18 ? "afternoon" : "night";
 
-      let aiMsg;
-      try {
-        aiMsg = await generateAINudge({
+        const aiMsg = await generateAINudge({
           tone,
           timeOfDay,
           lastMood: data.lastMood || "",
         });
-      } catch (e) {
-        console.error("AI NUDGE FAIL:", e);
-        continue;
-      }
 
-      try {
         await admin.messaging().send({
           token,
           data: {
@@ -627,40 +617,34 @@ async function runAutoNudge() {
           },
           android: { priority: "high" },
         });
-      } catch (err) {
-        if (
-          err.code === "messaging/registration-token-not-registered" ||
-          err.code === "messaging/invalid-registration-token"
-        ) {
-          await admin.firestore().collection("users").doc(doc.id).set(
-            { fcmToken: admin.firestore.FieldValue.delete() },
-            { merge: true }
-          );
-        }
-        continue;
+
+        await admin.firestore()
+          .collection("users")
+          .doc(doc.id)
+          .collection("notifications")
+          .add({
+            title: aiMsg.title,
+            message: aiMsg.body,
+            screen: "Home",
+            read: false,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+        await admin.firestore().collection("users").doc(doc.id).set(
+          { lastNudgeAt: todayStr },
+          { merge: true }
+        );
+
+      } catch (e) {
+        console.log("⚠️ USER SKIPPED:", doc.id, e.message);
       }
-
-      await admin.firestore()
-        .collection("users")
-        .doc(doc.id)
-        .collection("notifications")
-        .add({
-          title: aiMsg.title,
-          message: aiMsg.body,
-          screen: "Home",
-          read: false,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-      await admin.firestore().collection("users").doc(doc.id).set(
-        { lastNudgeAt: todayStr },
-        { merge: true }
-      );
     }
-  } catch (e) {
-    console.error("SMART AUTO NUDGE ERROR:", e);
-  }
-}
+    } catch (e) {
+        console.error("SMART AUTO NUDGE ERROR:", e);
+      }
+    }
+
+
 
 // हर 6 घंटे
 setInterval(runAutoNudge, 6 * 60 * 60 * 1000);
