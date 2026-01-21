@@ -515,7 +515,7 @@ async function runAutoNudge() {
     console.log("🤖 Smart Auto-nudge scan started...");
 
     const snap = await admin.firestore().collection("users").get();
-    const now = new Date();
+    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
     const todayStr = dateOnly(now);
 
     for (const doc of snap.docs) {
