@@ -462,15 +462,6 @@ function dateOnly(d = new Date()) {
   return d.toISOString().split("T")[0];
 }
 
-
-
-function decideTone(diffDays, streak) {
-  if (streak >= 5) return "proud";
-  if (diffDays >= 3) return "emotional";
-  if (diffDays === 2) return "care";
-  if (diffDays === 1) return "soft";
-  return null;
-}
 async function generateAINudge({ tone, timeOfDay, lastMood }) {
   const prompt = `
 You are WALLE, a warm health companion.
@@ -530,17 +521,13 @@ async function runAutoNudge() {
     for (const doc of snap.docs) {
       const data = doc.data();
 
-
-}
       const hour = now.getHours();
 
-      // 🔔 Raat 9–10 baje ke beech task reminder
+      // 🔔 Night task reminder (9–10 PM)
       if (hour >= 21 && hour <= 22) {
         const todayTask = data.todayTask;
 
-        if (todayTask && todayTask.completed === false) {
-          if (!data.fcmToken) continue;
-
+        if (todayTask && todayTask.completed === false && data.fcmToken) {
           try {
             await admin.messaging().send({
               token: data.fcmToken,
@@ -575,150 +562,101 @@ async function runAutoNudge() {
             }
           }
         }
-        }
-
-
-
-
+      }
 
       const token = data.fcmToken;
       if (!token) continue;
-   const lastOpen = data.lastOpenDate;
-   const lastSymptomAt = data.lastSymptomAt;
-   const lastTaskDoneAt = data.lastTaskDoneAt;
 
-   const lastNudgeAt = data.lastNudgeAt;
-   const lastNudgeKey = data.lastNudgeKey;
-   const streak = data.streak || 0;
+      const lastOpen = data.lastOpenDate;
+      if (!lastOpen) continue;
+      if (data.lastNudgeAt === todayStr) continue;
 
-   // ye dono rehne hi chahiye
-   if (!token || !lastOpen) continue;
-   if (lastNudgeAt === todayStr) continue;
+      const streak = data.streak || 0;
 
-   const diffOpen = Math.floor((now - new Date(lastOpen)) / DAY_MS);
+      const diffOpen = Math.floor((now - new Date(lastOpen)) / DAY_MS);
+      const diffSymptom = data.lastSymptomAt
+        ? Math.floor((now - new Date(data.lastSymptomAt)) / DAY_MS)
+        : 999;
+      const diffTask = data.lastTaskDoneAt
+        ? Math.floor((now - new Date(data.lastTaskDoneAt)) / DAY_MS)
+        : 999;
 
-   const diffSymptom = lastSymptomAt
-     ? Math.floor((now - new Date(lastSymptomAt)) / DAY_MS)
-     : 999;
+      let tone = null;
+      if (diffOpen >= 3) tone = "emotional";
+      else if (diffSymptom >= 3) tone = "care";
+      else if (diffTask >= 2) tone = "soft";
+      else if (streak >= 5) tone = "proud";
 
-   const diffTask = lastTaskDoneAt
-     ? Math.floor((now - new Date(lastTaskDoneAt)) / DAY_MS)
-     : 999;
+      if (!tone) continue;
 
-   // 🔥 yahin ab real behavior se tone decide hoga
-   let tone = null;
+      const preferred = data.preferredNudgeHour || 10;
+      const dnd = data.doNotDisturb;
+      const h = now.getHours();
 
-   if (diffOpen >= 3) tone = "emotional";        // app hi open nahi
-   else if (diffSymptom >= 3) tone = "care";     // symptom ignore
-   else if (diffTask >= 2) tone = "soft";        // task ignore
-   else if (streak >= 5) tone = "proud";         // good habit
+      if (dnd) {
+        if (h >= dnd.from || h < dnd.to) continue;
+      }
+      if (h !== preferred) continue;
 
-   if (!tone) continue;
-   // 🎉 Streak celebration (sirf special days par)
-   // 🎉 Streak celebration (sirf special days par)
-   if ([3, 7, 14].includes(streak)) {
-     try {
-       await admin.messaging().send({
-         token,
-         data: {
-           title: `🔥 ${streak}-day streak!`,
-           body: "Tumhari consistency amazing hai 💙",
-           screen: "Home",
-         },
-         android: { priority: "high" },
-       });
-     } catch (err) {
-       if (
-         err.code === "messaging/registration-token-not-registered" ||
-         err.code === "messaging/invalid-registration-token"
-       ) {
-         await admin.firestore().collection("users").doc(doc.id).set(
-           { fcmToken: admin.firestore.FieldValue.delete() },
-           { merge: true }
-         );
-       }
-     }
-   }
-   // ⏱️ Preferred time & DND (sirf normal nudges ke liye)
-   const preferred = data.preferredNudgeHour || 10;
-   const dnd = data.doNotDisturb;
-   const h = now.getHours();
+      const timeOfDay =
+        now.getHours() < 12
+          ? "morning"
+          : now.getHours() < 18
+          ? "afternoon"
+          : "night";
 
-   if (dnd) {
-     if (h >= dnd.from || h < dnd.to) {
-       continue;
-     }
-   }
+      let aiMsg;
+      try {
+        aiMsg = await generateAINudge({
+          tone,
+          timeOfDay,
+          lastMood: data.lastMood || "",
+        });
+      } catch (e) {
+        console.error("AI NUDGE FAIL:", e);
+        continue;
+      }
 
-   if (h !== preferred) continue;
+      try {
+        await admin.messaging().send({
+          token,
+          data: {
+            title: aiMsg.title,
+            body: aiMsg.body,
+            screen: "Home",
+          },
+          android: { priority: "high" },
+        });
+      } catch (err) {
+        if (
+          err.code === "messaging/registration-token-not-registered" ||
+          err.code === "messaging/invalid-registration-token"
+        ) {
+          await admin.firestore().collection("users").doc(doc.id).set(
+            { fcmToken: admin.firestore.FieldValue.delete() },
+            { merge: true }
+          );
+        }
+        continue;
+      }
 
+      await admin.firestore()
+        .collection("users")
+        .doc(doc.id)
+        .collection("notifications")
+        .add({
+          title: aiMsg.title,
+          message: aiMsg.body,
+          screen: "Home",
+          read: false,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
 
-
-
-
-
-// 🧠 AI Generated Smart Nudge
-const timeOfDay =
-  now.getHours() < 12 ? "morning" :
-  now.getHours() < 18 ? "afternoon" :
-  "night";
-
-const lastMood = data.lastMood || "";
-
-let aiMsg;
-try {
-  aiMsg = await generateAINudge({
-    tone,
-    timeOfDay,
-    lastMood,
-  });
-} catch (e) {
-  console.error("AI NUDGE FAIL:", e);
-  continue;
-}
-
-try {
-  await admin.messaging().send({
-    token,
-    data: {
-      title: aiMsg.title,
-      body: aiMsg.body,
-      screen: "Home",
-    },
-    android: { priority: "high" },
-  });
-} catch (err) {
-  if (
-    err.code === "messaging/registration-token-not-registered" ||
-    err.code === "messaging/invalid-registration-token"
-  ) {
-    await admin.firestore().collection("users").doc(doc.id).set(
-      { fcmToken: admin.firestore.FieldValue.delete() },
-      { merge: true }
-    );
-  }
-  continue;
-}
-
-await admin.firestore()
-  .collection("users")
-  .doc(doc.id)
-  .collection("notifications")
-  .add({
-    title: aiMsg.title,
-    message: aiMsg.body,
-    screen: "Home",
-    read: false,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
-
-await admin.firestore().collection("users").doc(doc.id).set(
-  {
-    lastNudgeAt: todayStr,
-  },
-  { merge: true }
-);
-
+      await admin.firestore().collection("users").doc(doc.id).set(
+        { lastNudgeAt: todayStr },
+        { merge: true }
+      );
+    }
   } catch (e) {
     console.error("SMART AUTO NUDGE ERROR:", e);
   }
@@ -727,9 +665,15 @@ await admin.firestore().collection("users").doc(doc.id).set(
 // हर 6 घंटे
 setInterval(runAutoNudge, 6 * 60 * 60 * 1000);
 
-
 // Server start hote hi ek baar run
 setTimeout(runAutoNudge, 20 * 1000);
+
+
+
+
+
+
+
 
 app.get("/auto-nudge", async (req, res) => {
   await runAutoNudge();
