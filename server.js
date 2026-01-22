@@ -405,6 +405,68 @@ app.post("/weekly-report-pdf", auth, async (req, res) => {
   }
 });
 
+/* ================= JOURNEY SESSION (DUOLINGO STYLE) ================= */
+app.post("/journey-session", auth, async (req, res) => {
+  try {
+    const { day, focus, streak } = req.body;
+
+    const prompt = `
+You are WALLE, a caring health companion.
+
+User is on Day ${day}.
+Focus: ${focus || "general health"}
+Streak: ${streak || 0}
+
+Generate a short daily health session:
+- Title
+- 3 simple steps
+- 1 reflective question
+- 1 warm closing line
+
+Rules:
+- No medical diagnosis
+- Friendly & human tone
+- Fresh and motivating
+- Short & simple
+- Not repetitive
+
+Output JSON only:
+{
+  "title": "",
+  "steps": ["", "", ""],
+  "question": "",
+  "ending": ""
+}
+`;
+
+    const r = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: process.env.OPENAI_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.7,
+        max_tokens: 220,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
+        },
+      }
+    );
+
+    const raw = r.data.choices[0].message.content;
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("Invalid JSON from AI");
+
+    const json = JSON.parse(match[0]);
+    res.json(json);
+  } catch (e) {
+    console.error("JOURNEY SESSION ERROR:", e);
+    res.status(500).json({ error: "Journey session failed" });
+  }
+});
+
+
 
 
 /* =====================================================
