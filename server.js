@@ -561,10 +561,12 @@ app.post("/tts", auth, async (req, res) => {
       }
     );
 
-    res.set("Content-Type", "audio/mpeg");
-    res.send(r.data);
+    // 🔥 binary → base64
+    const base64 = Buffer.from(r.data).toString("base64");
+
+    res.json({ audio: base64 });
   } catch (e) {
-    console.error("TTS ERROR:", e.message);
+    console.error("TTS ERROR:", e.response?.data || e.message);
     res.status(500).json({ error: "TTS failed" });
   }
 });
