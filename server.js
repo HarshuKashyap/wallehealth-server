@@ -541,6 +541,35 @@ Output only plain text.
   }
 });
 
+app.post("/tts", auth, async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ error: "text required" });
+
+    const r = await axios.post(
+      "https://api.openai.com/v1/audio/speech",
+      {
+        model: "gpt-4o-mini-tts",
+        voice: "alloy",
+        input: text,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
+        },
+        responseType: "arraybuffer",
+      }
+    );
+
+    res.set("Content-Type", "audio/mpeg");
+    res.send(r.data);
+  } catch (e) {
+    console.error("TTS ERROR:", e.message);
+    res.status(500).json({ error: "TTS failed" });
+  }
+});
+
+
 
 
 
