@@ -466,6 +466,82 @@ Output JSON only:
   }
 });
 
+/* ================= DAILY WALLE NOTE ================= */
+app.post("/daily-note", auth, async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: "userId required" });
+
+    const ref = admin.firestore().collection("users").doc(userId);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: "User not found" });
+
+    const data = snap.data();
+    const today = new Date().toISOString().split("T")[0];
+
+    // Agar aaj ka note already hai → wahi bhejo
+    if (data?.dailyNote?.date === today) {
+      return res.json({ text: data.dailyNote.text });
+    }
+
+    const streak = data?.streak || 0;
+    const mood = data?.lastMood || "normal";
+
+    const prompt = `
+You are WALLE, a warm emotional companion.
+
+Write ONE short daily note for the user.
+
+Context:
+- Streak: ${streak}
+- Mood: ${mood}
+
+Rules:
+- 2–3 lines only
+- Human, emotional, gentle
+- No medical advice
+- Not motivational poster style
+- Feel personal and caring
+- Never repeat old style
+
+Output only plain text.
+`;
+
+    const r = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: process.env.OPENAI_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.8,
+        max_tokens: 120,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
+        },
+      }
+    );
+
+    const text = r.data.choices[0].message.content.trim();
+
+    await ref.set(
+      {
+        dailyNote: {
+          date: today,
+          text,
+        },
+      },
+      { merge: true }
+    );
+
+    res.json({ text });
+  } catch (e) {
+    console.error("DAILY NOTE ERROR:", e);
+    res.status(500).json({ error: "Daily note failed" });
+  }
+});
+
+
 
 
 
