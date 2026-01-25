@@ -541,45 +541,6 @@ Output only plain text.
   }
 });
 
-app.post("/tts", auth, async (req, res) => {
-  try {
-    const { text } = req.body;
-    if (!text) return res.status(400).json({ error: "text required" });
-
-    const r = await axios.post(
-      "https://api.openai.com/v1/audio/speech",
-      {
-        model: "gpt-4o-mini-tts",
-        voice: "alloy",
-        input: text,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
-          "Content-Type": "application/json",
-        },
-        responseType: "arraybuffer",
-      }
-    );
-
-    // Convert audio to base64 so RN easily play kare
-    const base64 = Buffer.from(r.data).toString("base64");
-
-    res.json({ audio: base64 });
-  } catch (e) {
-    console.error("TTS ERROR FULL:", e.response?.data || e.message);
-    res.status(500).json({
-      error: "TTS failed",
-      detail: e.response?.data || e.message,
-    });
-  }
-});
-
-
-
-
-
-
 
 
 /* =====================================================
