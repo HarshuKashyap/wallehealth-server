@@ -507,20 +507,22 @@ Rules:
 Output only plain text.
 `;
 
-    const r = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: process.env.OPENAI_MODEL,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.8,
-        max_tokens: 120,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
-        },
-      }
-    );
+   const r = await axios.post(
+     "https://api.openai.com/v1/chat/completions",
+     {
+       model: process.env.OPENAI_MODEL,
+       messages: [{ role: "user", content: prompt }],
+       temperature: 0.8,
+       max_tokens: 120,
+     },
+     {
+       headers: {
+         Authorization: `Bearer ${process.env.OPENAI_KEY}`,
+       },
+       timeout: 7000, // ⏱️ max 7 sec wait
+     }
+   );
+
 
     const text = r.data.choices[0].message.content.trim();
 
@@ -534,11 +536,14 @@ Output only plain text.
       { merge: true }
     );
 
-    res.json({ text });
-  } catch (e) {
-    console.error("DAILY NOTE ERROR:", e);
-    res.status(500).json({ error: "Daily note failed" });
-  }
+    res.json({ text })
+ } catch (e) {
+   console.error("DAILY NOTE ERROR:", e);
+
+   return res.json({
+     text: "I’m here with you today. Even a small pause can be kind to your mind 💙",
+   });
+ }
 });
 
 
