@@ -477,78 +477,6 @@ Output JSON only:
     });
   }
 });
-app.post("/journey-session", auth, async (req, res) => {
-  try {
-    const { day, focus, streak } = req.body;
-
-    const prompt = `
-You are WALLE, a caring health companion.
-
-User is on Day ${day}.
-Focus: ${focus || "general health"}
-Streak: ${streak || 0}
-
-Generate a short daily health session:
-- Title
-- 3 simple steps
-- 1 reflective question
-- 1 warm closing line
-
-Rules:
-- No medical diagnosis
-- Friendly & human tone
-- Fresh and motivating
-- Short & simple
-- Not repetitive
-
-Output JSON only:
-{
-  "title": "",
-  "steps": ["", "", ""],
-  "question": "",
-  "ending": ""
-}
-`;
-
-    const r = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: process.env.OPENAI_MODEL,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.7,
-        max_tokens: 220,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
-        },
-        timeout: 7000,
-      }
-    );
-
-    const raw = r.data.choices[0].message.content;
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("Invalid JSON from AI");
-
-    const json = JSON.parse(match[0]);
-    res.json(json);
-  } catch (e) {
-    console.error("JOURNEY SESSION ERROR:", e);
-
-    // 🔥 Safe fallback – app kabhi rukega nahi
-    res.json({
-      title: "Today with WALLE",
-      steps: [
-        "Take 3 slow breaths.",
-        "Notice how your body feels.",
-        "Drink a glass of water.",
-      ],
-      question: "What do you need most today?",
-      ending: "Even small care matters 💙",
-    });
-  }
-});
-
 
 /* ================= DAILY WALLE NOTE ================= */
 app.post("/daily-note", auth, async (req, res) => {
@@ -563,11 +491,19 @@ app.post("/daily-note", auth, async (req, res) => {
     const data = snap.data();
     const today = new Date().toISOString().split("T")[0];
 
-    // Agar aaj ka note already hai → wahi bhejo
+    // 🔥 Agar aaj ka note already hai → turant bhejo
     if (data?.dailyNote?.date === today) {
       return res.json({ text: data.dailyNote.text });
     }
 
+    // 🛟 Instant fallback (app fast rahe)
+    const fallback =
+      "I’m here with you today. Even a small pause can be kind to your mind 💙";
+
+    // Client ko turant fallback bhej do
+    res.json({ text: fallback });
+
+    // 🔄 Background me AI generate karo
     const streak = data?.streak || 0;
     const mood = data?.lastMood || "normal";
 
@@ -584,29 +520,24 @@ Rules:
 - 2–3 lines only
 - Human, emotional, gentle
 - No medical advice
-- Not motivational poster style
-- Feel personal and caring
-- Never repeat old style
-
-Output only plain text.
+- Feel personal
 `;
 
-   const r = await axios.post(
-     "https://api.openai.com/v1/chat/completions",
-     {
-       model: process.env.OPENAI_MODEL,
-       messages: [{ role: "user", content: prompt }],
-       temperature: 0.8,
-       max_tokens: 120,
-     },
-     {
-       headers: {
-         Authorization: `Bearer ${process.env.OPENAI_KEY}`,
-       },
-       timeout: 7000, // ⏱️ max 7 sec wait
-     }
-   );
-
+    const r = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: process.env.OPENAI_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.8,
+        max_tokens: 120,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
+        },
+        timeout: 7000,
+      }
+    );
 
     const text = r.data.choices[0].message.content.trim();
 
@@ -619,17 +550,10 @@ Output only plain text.
       },
       { merge: true }
     );
-
-    res.json({ text })
- } catch (e) {
-   console.error("DAILY NOTE ERROR:", e);
-
-   return res.json({
-     text: "I’m here with you today. Even a small pause can be kind to your mind 💙",
-   });
- }
+  } catch (e) {
+    console.error("DAILY NOTE ERROR:", e);
+  }
 });
-
 
 
 /* =====================================================
@@ -676,6 +600,28 @@ app.post("/send", auth, async (req, res) => {
     res.status(500).json({ error: "Notification send failed" });
   }
 });
+
+const NUDGE_TEMPLATES = {
+  soft: [
+    { title: "Just a small check 💙", body: "One tiny step for your health today?" },
+    { title: "WALLE here", body: "You don’t have to do everything. Just one thing." },
+  ],
+  care: [
+    { title: "How are you feeling?", body: "It’s okay to slow down today." },
+  ],
+  emotional: [
+    { title: "We miss you 💙", body: "Come back when you’re ready." },
+  ],
+  proud: [
+    { title: "You’re doing great 🔥", body: "Your streak shows real care." },
+  ],
+};
+
+function pickTemplate(tone) {
+  const arr = NUDGE_TEMPLATES[tone];
+  if (!arr || arr.length === 0) return null;
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
 /* =====================================================
    🤖 AUTO NUDGE ENGINE (SMART – DUOLINGO STYLE)
@@ -827,33 +773,47 @@ async function runAutoNudge() {
         const timeOfDay =
           h < 12 ? "morning" : h < 18 ? "afternoon" : "night";
 
-        const aiMsg = await generateAINudge({
-          tone,
-          timeOfDay,
-          lastMood: data.lastMood || "",
-        });
+       let msg = pickTemplate(tone);
+
+       // Sirf ~30% cases me AI call
+       if (!msg || Math.random() < 0.3) {
+         try {
+           msg = await generateAINudge({
+             tone,
+             timeOfDay,
+             lastMood: data.lastMood || "",
+           });
+         } catch (e) {
+           msg = pickTemplate(tone);
+         }
+       }
+
+       if (!msg) continue;
+
 
         await admin.messaging().send({
           token,
           data: {
-            title: aiMsg.title,
-            body: aiMsg.body,
+            title: msg.title,
+            body: msg.body,
             screen: "Home",
           },
           android: { priority: "high" },
         });
+
 
         await admin.firestore()
           .collection("users")
           .doc(doc.id)
           .collection("notifications")
           .add({
-            title: aiMsg.title,
-            message: aiMsg.body,
+            title: msg.title,
+            message: msg.body,
             screen: "Home",
             read: false,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
           });
+
 
         await admin.firestore().collection("users").doc(doc.id).set(
           { lastNudgeAt: todayStr },
