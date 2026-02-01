@@ -101,106 +101,44 @@ app.post("/welcome", auth, async (req, res) => {
 
 /* ================= CHAT ================= */
 app.post("/chat", auth, async (req, res) => {
-  try {
-    const { message, userId } = req.body;
+  const { message, userId } = req.body;
 
-    if (!userId) {
-      return res.status(400).json({ error: "userId required" });
-    }
-
-    const userRef = admin.firestore().collection("users").doc(userId);
-
-    // 🔹 Last 6 messages memory se uthao
-    const historySnap = await userRef
-      .collection("ai_memory")
-      .orderBy("createdAt", "desc")
-      .limit(6)
-      .get();
-
-    const memory = [];
-    historySnap.docs.reverse().forEach((d) => {
-      const m = d.data();
-      memory.push({ role: m.role, content: m.text });
-    });
-
-    const systemPrompt = `
-    You are WALLE, a caring health companion.
-
-    Rules:
-    - Never give medical diagnosis.
-    - Remember user's feelings.
-    - Speak warm, human, supportive.
-    - If user is sad, be gentle.
-    - If user is doing well, encourage.
-    - Use past context to reply personally.
-
-    Language behavior:
-    - If user writes in English, reply in English.
-    - If user writes in Hindi or Hinglish, reply in Hindi/Hinglish.
-    - Always mirror the user's language style.
-    `;
-
-    const messages = [
-      { role: "system", content: systemPrompt },
-      ...memory,
-      { role: "user", content: message },
-    ];
-
-    const response = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: process.env.OPENAI_MODEL,
-        messages,
-        temperature: 0.35,
-        max_tokens: 350,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
-        },
-      }
-    );
-
-    const answer = response.data.choices[0].message.content;
-
-    // 🔹 Save conversation in memory
-    const batch = admin.firestore().batch();
-
-    const userMsgRef = userRef.collection("ai_memory").doc();
-    batch.set(userMsgRef, {
-      role: "user",
-      text: message,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    const aiMsgRef = userRef.collection("ai_memory").doc();
-    batch.set(aiMsgRef, {
-      role: "assistant",
-      text: answer,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    await batch.commit();
-    // 🔒 Keep only last 20 messages in memory
-    const oldSnap = await userRef
-      .collection("ai_memory")
-      .orderBy("createdAt", "asc")
-      .get();
-
-    if (oldSnap.size > 20) {
-      const toDelete = oldSnap.docs.slice(0, oldSnap.size - 20);
-      const cleanBatch = admin.firestore().batch();
-      toDelete.forEach((d) => cleanBatch.delete(d.ref));
-      await cleanBatch.commit();
-    }
-
-
-    res.json({ answer });
-  } catch (err) {
-    console.error("CHAT ERROR:", err);
-    res.status(500).json({ error: "Failed to fetch response" });
+  if (!userId || !message) {
+    return res.status(400).json({ error: "Missing data" });
   }
+
+  const chatRef = admin
+    .firestore()
+    .collection("users")
+    .doc(userId)
+    .collection("chat");
+
+  // 1️⃣ Save user message
+  await chatRef.add({
+    role: "user",
+    text: message,
+    status: "done",
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  // 2️⃣ Create assistant placeholder
+  const aiDoc = await chatRef.add({
+    role: "assistant",
+    text: "...",
+    status: "pending",
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  // 3️⃣ Run AI in background (DO NOT await)
+  processChatAI(userId, aiDoc.id).catch(console.error);
+
+  // 4️⃣ Instant reply to user (UX smooth)
+  res.json({
+    answer: "I’m listening… 💙",
+    pending: true,
+  });
 });
+
 
 
 /* ================= SUMMARY ================= */
@@ -848,6 +786,83 @@ app.get("/auto-nudge", async (req, res) => {
   await runAutoNudge();
   res.json({ status: "Auto nudge executed" });
 });
+
+async function processChatAI(userId, aiMsgId) {
+  const chatRef = admin
+    .firestore()
+    .collection("users")
+    .doc(userId)
+    .collection("chat");
+
+  // 🔹 Fetch last 6 messages for memory
+  const snap = await chatRef
+    .orderBy("createdAt", "desc")
+    .limit(6)
+    .get();
+
+  // 🔹 SYSTEM PROMPT (LANGUAGE LOGIC STAYS HERE)
+  const systemPrompt = `
+You are WALLE, a caring health companion.
+
+Rules:
+- Never give medical diagnosis.
+- Be warm, human, and supportive.
+- If the user is sad, be gentle.
+- If the user is doing well, encourage.
+- Use past context naturally.
+
+Language behavior:
+- If the user writes in English, reply in English.
+- If the user writes in Hindi, reply in Hindi.
+- If the user writes in Hinglish, reply in Hinglish.
+- Always mirror the user's language style.
+`;
+
+  const messages = [{ role: "system", content: systemPrompt }];
+
+  // 🔹 Build memory
+  snap.docs.reverse().forEach((doc) => {
+    const d = doc.data();
+    if (d.text && d.status === "done") {
+      messages.push({
+        role: d.role,
+        content: d.text,
+      });
+    }
+  });
+
+  try {
+    const response = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: process.env.OPENAI_MODEL,
+        messages,
+        temperature: 0.35,
+        max_tokens: 250,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
+        },
+        timeout: 7000,
+      }
+    );
+
+    const answer = response.data.choices[0].message.content;
+
+    await chatRef.doc(aiMsgId).update({
+      text: answer,
+      status: "done",
+    });
+  } catch (err) {
+    console.error("CHAT AI ERROR:", err.message);
+
+    await chatRef.doc(aiMsgId).update({
+      text: "I’m here with you 💙",
+      status: "done",
+    });
+  }
+}
 
 
 /* ================= START SERVER ================= */
