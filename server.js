@@ -171,11 +171,28 @@ app.post("/symptom-summary", auth, async (req, res) => {
 
 app.post("/daily-tasks", auth, async (req, res) => {
   try {
-    const { symptoms } = req.body;
+    const { userId, symptoms = [] } = req.body;
+    if (!userId) {
+      return res.status(400).json({ error: "userId required" });
+    }
 
-    const text = symptoms
-      .map((s) => `- ${s.text || ""}`)
-      .join("\n");
+    const today = new Date().toISOString().split("T")[0];
+
+    const taskRef = admin
+      .firestore()
+      .collection("users")
+      .doc(userId)
+      .collection("dailyTasks")
+      .doc(today);
+
+    // 🔹 1️⃣ Check cache
+    const snap = await taskRef.get();
+    if (snap.exists) {
+      return res.json(snap.data());
+    }
+
+    // 🔹 2️⃣ Build AI prompt
+    const text = symptoms.map((s) => `- ${s.text || ""}`).join("\n");
 
     const prompt = `
 User ke recent symptoms:
@@ -183,17 +200,13 @@ ${text}
 
 In symptoms ke base par 3 daily health tasks banao:
 
-1. Body Task (physical care)
-2. Mind Task (mental care)
-3. Awareness Task (self reflection / journaling)
-
 Rules:
-- Har task ek line ka ho
-- Medical diagnosis mat do
-- Caring & supportive tone ho
-- Aaj ke liye fresh ho (repeat na ho)
+- Sirf aaj ke liye
+- Kal ke tasks repeat na ho
+- Simple, human language
+- No medical diagnosis
 
-Output sirf JSON me do:
+Output JSON only:
 {
   "body": { "task": "", "reason": "" },
   "mind": { "task": "", "reason": "" },
@@ -201,35 +214,49 @@ Output sirf JSON me do:
 }
 `;
 
+    // 🔹 3️⃣ AI CALL (ONCE PER DAY)
     const response = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
         model: process.env.OPENAI_MODEL,
-        messages: [
-          { role: "system", content: "You generate safe daily health tasks." },
-          { role: "user", content: prompt },
-        ],
+        messages: [{ role: "user", content: prompt }],
         temperature: 0.6,
         max_tokens: 300,
       },
-      { headers: { Authorization: `Bearer ${process.env.OPENAI_KEY}` } }
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
+        },
+        timeout: 7000,
+      }
     );
 
     const raw = response.data.choices[0].message.content;
-
-    // 🔥 Sirf JSON part nikaalo
     const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) {
-      throw new Error("Invalid JSON from AI");
-    }
+    if (!match) throw new Error("Invalid JSON from AI");
 
-    const json = JSON.parse(match[0]);
+    const taskData = {
+      ...JSON.parse(match[0]),
+      date: today,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      source: "ai",
+    };
 
+    // 🔹 4️⃣ SAVE
+    await taskRef.set(taskData);
 
-    res.json(json);
+    // 🔹 5️⃣ RETURN
+    res.json(taskData);
   } catch (err) {
-    console.error("DAILY TASK AI ERROR:", err);
-    res.status(500).json({ error: "Daily task generation failed" });
+    console.error("DAILY TASK ERROR:", err.message);
+
+    // 🛟 Safe fallback
+    res.json({
+      body: { task: "Drink water slowly", reason: "Hydration helps balance energy" },
+      mind: { task: "Take 3 deep breaths", reason: "Calms your nervous system" },
+      awareness: { task: "Notice one good thing today", reason: "Builds positivity" },
+      source: "fallback",
+    });
   }
 });
 
