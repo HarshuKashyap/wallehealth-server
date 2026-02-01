@@ -6,6 +6,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const admin = require("firebase-admin");
+const runningAI = new Set();
 
 const app = express();
 
@@ -815,17 +816,25 @@ app.get("/auto-nudge", async (req, res) => {
 });
 
 async function processChatAI(userId, aiMsgId) {
+  // 🛑 Prevent parallel AI calls for same user
+  if (runningAI.has(userId)) {
+    console.log("⏸️ AI already running for user:", userId);
+    return;
+  }
+
+  runningAI.add(userId);
+
   const chatRef = admin
     .firestore()
     .collection("users")
     .doc(userId)
     .collection("chat");
 
-  // 🔹 Fetch last 6 messages for memory
-  const snap = await chatRef
-    .orderBy("createdAt", "desc")
-    .limit(6)
-    .get();
+  try {
+    const snap = await chatRef
+      .orderBy("createdAt", "desc")
+      .limit(6)
+      .get();
 
   // 🔹 SYSTEM PROMPT (LANGUAGE LOGIC STAYS HERE)
   const systemPrompt = `
@@ -845,51 +854,50 @@ Language behavior:
 - Always mirror the user's language style.
 `;
 
-  const messages = [{ role: "system", content: systemPrompt }];
+   const messages = [{ role: "system", content: systemPrompt }];
 
-  // 🔹 Build memory
-  snap.docs.reverse().forEach((doc) => {
-    const d = doc.data();
-    if (d.text && d.status === "done") {
-      messages.push({
-        role: d.role,
-        content: d.text,
+      snap.docs.reverse().forEach(doc => {
+        const d = doc.data();
+        if (d.text && d.status === "done") {
+          messages.push({ role: d.role, content: d.text });
+        }
       });
-    }
-  });
 
-  try {
-    const response = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: process.env.OPENAI_MODEL,
-        messages,
-        temperature: 0.35,
-        max_tokens: 250,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
+      const response = await axios.post(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          model: process.env.OPENAI_MODEL,
+          messages,
+          temperature: 0.35,
+          max_tokens: 250,
         },
-        timeout: 7000,
-      }
-    );
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.OPENAI_KEY}`,
+          },
+          timeout: 7000,
+        }
+      );
 
-    const answer = response.data.choices[0].message.content;
+      const answer = response.data.choices[0].message.content;
 
-    await chatRef.doc(aiMsgId).update({
-      text: answer,
-      status: "done",
-    });
-  } catch (err) {
-    console.error("CHAT AI ERROR:", err.message);
+      await chatRef.doc(aiMsgId).update({
+        text: answer,
+        status: "done",
+      });
 
-    await chatRef.doc(aiMsgId).update({
-      text: "I’m here with you 💙",
-      status: "done",
-    });
+    } catch (err) {
+      console.error("CHAT AI ERROR:", err.message);
+
+      await chatRef.doc(aiMsgId).update({
+        text: "I’m here with you 💙",
+        status: "done",
+      });
+    } finally {
+      // ✅ VERY IMPORTANT
+      runningAI.delete(userId);
+    }
   }
-}
 
 
 /* ================= START SERVER ================= */
