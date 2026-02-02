@@ -130,10 +130,17 @@ app.post("/chat", auth, async (req, res) => {
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
-// 🔒 FREE TIER: AI only after every 2 user messages
-const userSnap = await chatRef.where("role", "==", "user").get();
+// 🔒 FREE TIER DAILY AI LIMIT
+const today = new Date().toISOString().split("T")[0];
 
-if (userSnap.size % 2 === 0) {
+const aiCountSnap = await chatRef
+  .where("role", "==", "assistant")
+  .where("aiDate", "==", today)
+  .get();
+
+// Max 2 AI replies per day
+if (aiCountSnap.size < 2) {
+  await chatRef.doc(aiDoc.id).update({ aiDate: today });
   processChatAI(userId, aiDoc.id).catch(console.error);
 } else {
   await chatRef.doc(aiDoc.id).update({
@@ -679,7 +686,7 @@ async function runAutoNudge() {
        let msg = pickTemplate(tone);
 
        // Sirf ~30% cases me AI call
-       if (!msg || Math.random() < 0.3) {
+       if (!msg) {
          try {
            msg = await generateAINudge({
              tone,
