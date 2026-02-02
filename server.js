@@ -130,8 +130,17 @@ app.post("/chat", auth, async (req, res) => {
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
-  // 3️⃣ Run AI in background (DO NOT await)
+// 🔒 FREE TIER: AI only after every 2 user messages
+const userSnap = await chatRef.where("role", "==", "user").get();
+
+if (userSnap.size % 2 === 0) {
   processChatAI(userId, aiDoc.id).catch(console.error);
+} else {
+  await chatRef.doc(aiDoc.id).update({
+    text: "I’m here with you. Tell me a little more 💙",
+    status: "done",
+  });
+}
 
   // 4️⃣ Instant reply to user (UX smooth)
   res.json({
@@ -189,6 +198,11 @@ app.post("/daily-tasks", auth, async (req, res) => {
     // 🔹 1️⃣ Check cache
     const snap = await taskRef.get();
     if (snap.exists) {
+      return res.json(snap.data());
+    }
+
+    // 🔒 Free tier safety
+    if (snap.exists && snap.data()?.source === "ai") {
       return res.json(snap.data());
     }
 
@@ -372,155 +386,78 @@ app.post("/weekly-report-pdf", auth, async (req, res) => {
 });
 
 /* ================= JOURNEY SESSION (DUOLINGO STYLE) ================= */
-app.post("/journey-session", auth, async (req, res) => {
-  try {
-    const { day, focus, streak } = req.body;
-
-    const prompt = `
-You are WALLE, a caring health companion.
-
-User is on Day ${day}.
-Focus: ${focus || "general health"}
-Streak: ${streak || 0}
-
-Generate a short daily health session:
-- Title
-- 3 simple steps
-- 1 reflective question
-- 1 warm closing line
-
-Rules:
-- No medical diagnosis
-- Friendly & human tone
-- Fresh and motivating
-- Short & simple
-- Not repetitive
-
-Output JSON only:
-{
-  "title": "",
-  "steps": ["", "", ""],
-  "question": "",
-  "ending": ""
-}
-`;
-
-    const r = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: process.env.OPENAI_MODEL,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.7,
-        max_tokens: 220,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
-        },
-        timeout: 7000,
-      }
-    );
-
-    const raw = r.data.choices[0].message.content;
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("Invalid JSON from AI");
-
-    const json = JSON.parse(match[0]);
-    res.json(json);
-  } catch (e) {
-    console.error("JOURNEY SESSION ERROR:", e);
-
-    // 🔥 Safe fallback – app kabhi rukega nahi
-    res.json({
-      title: "Today with WALLE",
+function getJourneySession(day) {
+  const SESSIONS = [
+    {
+      title: "Calm Start",
       steps: [
         "Take 3 slow breaths.",
-        "Notice how your body feels.",
+        "Relax your shoulders.",
         "Drink a glass of water.",
       ],
-      question: "What do you need most today?",
-      ending: "Even small care matters 💙",
-    });
-  }
+      question: "How does your body feel right now?",
+      ending: "A calm start makes the day lighter 💙",
+    },
+    {
+      title: "Mindful Moment",
+      steps: [
+        "Notice one sound around you.",
+        "Take a deep breath.",
+        "Sit comfortably.",
+      ],
+      question: "What feels calm today?",
+      ending: "Small awareness builds strength 🌱",
+    },
+    {
+      title: "Gentle Energy",
+      steps: [
+        "Stand up slowly.",
+        "Stretch your arms.",
+        "Smile softly.",
+      ],
+      question: "What gives you energy today?",
+      ending: "Your effort matters ✨",
+    },
+  ];
+
+  return SESSIONS[day % SESSIONS.length];
+}
+
+app.post("/journey-session", auth, (req, res) => {
+  const { day = 1 } = req.body;
+  res.json(getJourneySession(day));
 });
 
 /* ================= DAILY WALLE NOTE ================= */
+const DAILY_NOTES = [
+  "You showed up today. That itself is enough 💙",
+  "Small steps still move you forward 🌱",
+  "Take a breath. You’re doing okay.",
+  "Progress isn’t loud. It’s quiet and steady ✨",
+];
+
 app.post("/daily-note", auth, async (req, res) => {
-  try {
-    const { userId } = req.body;
-    if (!userId) return res.status(400).json({ error: "userId required" });
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: "userId required" });
 
-    const ref = admin.firestore().collection("users").doc(userId);
-    const snap = await ref.get();
-    if (!snap.exists) return res.status(404).json({ error: "User not found" });
+  const ref = admin.firestore().collection("users").doc(userId);
+  const snap = await ref.get();
 
-    const data = snap.data();
-    const today = new Date().toISOString().split("T")[0];
+  const today = new Date().toISOString().split("T")[0];
 
-    // 🔥 Agar aaj ka note already hai → turant bhejo
-    if (data?.dailyNote?.date === today) {
-      return res.json({ text: data.dailyNote.text });
-    }
-
-    // 🛟 Instant fallback (app fast rahe)
-    const fallback =
-      "I’m here with you today. Even a small pause can be kind to your mind 💙";
-
-    // Client ko turant fallback bhej do
-    res.json({ text: fallback });
-
-    // 🔄 Background me AI generate karo
-    const streak = data?.streak || 0;
-    const mood = data?.lastMood || "normal";
-
-    const prompt = `
-You are WALLE, a warm emotional companion.
-
-Write ONE short daily note for the user.
-
-Context:
-- Streak: ${streak}
-- Mood: ${mood}
-
-Rules:
-- 2–3 lines only
-- Human, emotional, gentle
-- No medical advice
-- Feel personal
-`;
-
-    const r = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: process.env.OPENAI_MODEL,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.8,
-        max_tokens: 120,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_KEY}`,
-        },
-        timeout: 7000,
-      }
-    );
-
-    const text = r.data.choices[0].message.content.trim();
-
-    await ref.set(
-      {
-        dailyNote: {
-          date: today,
-          text,
-        },
-      },
-      { merge: true }
-    );
-  } catch (e) {
-    console.error("DAILY NOTE ERROR:", e);
+  if (snap.data()?.dailyNote?.date === today) {
+    return res.json({ text: snap.data().dailyNote.text });
   }
-});
 
+  const note = DAILY_NOTES[new Date().getDate() % DAILY_NOTES.length];
+
+  await ref.set(
+    { dailyNote: { date: today, text: note } },
+    { merge: true }
+  );
+
+  res.json({ text: note });
+});
 
 /* =====================================================
    🔔 SEND NOTIFICATION + SAVE TO FIRESTORE (FINAL)
